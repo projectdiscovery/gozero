@@ -5,24 +5,24 @@ import (
 	"os/exec"
 )
 
-type Pyzero struct {
+type Gozero struct {
 	Options *Options
 }
 
-func New(options *Options) (*Pyzero, error) {
-	return &Pyzero{Options: options}, nil
+func New(options *Options) (*Gozero, error) {
+	return &Gozero{Options: options}, nil
 }
 
-func (py *Pyzero) Eval(pyfile, input *Source) (*Source, error) {
+func (g *Gozero) Eval(src, input *Source) (*Source, error) {
 	output, err := NewSource()
 	if err != nil {
 		return nil, err
 	}
 	switch {
-	case py.Options.PreferStartProcess:
-		err = py.runWithApi(pyfile, input, output)
+	case g.Options.PreferStartProcess:
+		err = g.runWithApi(src, input, output)
 	default:
-		err = py.run(pyfile, input, output)
+		err = g.run(src, input, output)
 	}
 	if err != nil {
 		return nil, err
@@ -30,17 +30,17 @@ func (py *Pyzero) Eval(pyfile, input *Source) (*Source, error) {
 	return output, nil
 }
 
-func (py *Pyzero) run(pyfile, input, output *Source) error {
-	pyCmd := exec.Command(py.Options.Engine, pyfile.Filename)
+func (g *Gozero) run(src, input, output *Source) error {
+	pyCmd := exec.Command(g.Options.Engine, src.Filename)
 	pyCmd.Stdin = input.File
 	pyCmd.Stdout = output.File
 	return pyCmd.Run()
 }
 
-func (py *Pyzero) runWithApi(pyfile, input, output *Source) error {
+func (g *Gozero) runWithApi(src, input, output *Source) error {
 	var procAttr os.ProcAttr
 	procAttr.Files = []*os.File{input.File, output.File, nil}
-	proc, err := os.StartProcess(py.Options.Engine, []string{py.Options.Engine, pyfile.Filename}, &procAttr)
+	proc, err := os.StartProcess(g.Options.Engine, []string{g.Options.Engine, src.Filename}, &procAttr)
 	if err != nil {
 		return err
 	}
