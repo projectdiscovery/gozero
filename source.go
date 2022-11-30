@@ -55,6 +55,10 @@ func NewSourceWithReader(src io.Reader) (*Source, error) {
 		return nil, err
 	}
 
+	if _, err := srcFile.Seek(0, 0); err != nil {
+		return nil, err
+	}
+
 	return &Source{Filename: pyfileName, Temporary: true, File: srcFile}, nil
 }
 
