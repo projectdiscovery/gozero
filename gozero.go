@@ -31,10 +31,10 @@ func (g *Gozero) Eval(src, input *Source) (*Source, error) {
 }
 
 func (g *Gozero) run(src, input, output *Source) error {
-	pyCmd := exec.Command(g.Options.Engine, src.Filename)
-	pyCmd.Stdin = input.File
-	pyCmd.Stdout = output.File
-	return pyCmd.Run()
+	gCmd := exec.Command(g.Options.Engine, src.Filename)
+	gCmd.Stdin = input.File
+	gCmd.Stdout = output.File
+	return gCmd.Run()
 }
 
 func (g *Gozero) runWithApi(src, input, output *Source) error {

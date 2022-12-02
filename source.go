@@ -46,7 +46,7 @@ func NewSourceWithReader(src io.Reader) (*Source, error) {
 		return nil, err
 	}
 
-	pyfileName := srcFile.Name()
+	gfileName := srcFile.Name()
 	if _, err := io.Copy(srcFile, src); err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func NewSourceWithReader(src io.Reader) (*Source, error) {
 		return nil, err
 	}
 
-	return &Source{Filename: pyfileName, Temporary: true, File: srcFile}, nil
+	return &Source{Filename: gfileName, Temporary: true, File: srcFile}, nil
 }
 
 func (s *Source) Close() error {
