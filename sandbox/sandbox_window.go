@@ -88,6 +88,7 @@ func (s *Sandbox) Stop() error {
 		return err
 	}
 	s.instance = nil
+	return nil
 }
 
 func (s *Sandbox) Clear() error {

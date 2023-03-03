@@ -3,8 +3,10 @@ package gozero
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/projectdiscovery/gozero/sandbox"
 )
@@ -46,6 +48,7 @@ func (g *Gozero) ExecWithSandbox(ctx context.Context, input *Source, cmd *Comman
 	sandboxConfig := sandbox.Config{
 		MappedFolders: sharedFolders,
 		Networking:    sandbox.Enable,
+		LogonCommand:  fmt.Sprintf("callback -input %s -output %s %s %s", input.Filename, output.Filename, cmd.Name, strings.Join(cmd.Args, " ")),
 	}
 	gSandbox, err := sandbox.New(ctx, &sandboxConfig)
 	if err != nil {
