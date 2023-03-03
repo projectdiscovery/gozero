@@ -4,4 +4,5 @@ type Options struct {
 	Command            string
 	Engine             string
 	PreferStartProcess bool
+	Sandbox            bool
 }
