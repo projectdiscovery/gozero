@@ -7,12 +7,14 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
-
-	fileutil "github.com/projectdiscovery/utils/file"
 )
+
+const DefaultMountPoint = `C:\Users\WDAGUtilityAccount\Desktop`
 
 type Value string
 
@@ -22,66 +24,111 @@ const (
 	Default Value = "Default"
 )
 
-type Config struct {
-	MappedFolders   []MappedFolder `xml:"MappedFolders"`
-	Networking      Value          `xml:"Networking"`
-	LogonCommand    string         `xml:"LogonCommand"`
-	VirtualGPU      Value          `xml:"vGPU"`
-	ProtectedClient Value          `xml:"ProtectedClient"`
-	MemoryInMB      int            `xml:"MemoryInMB"`
+type Configuration struct {
+	MappedFolders   MappedFolders `xml:"MappedFolders"`
+	Networking      Value         `xml:"Networking"`
+	LogonCommands   LogonCommands `xml:"LogonCommand,omitempty"`
+	VirtualGPU      Value         `xml:"vGPU"`
+	ProtectedClient Value         `xml:"ProtectedClient"`
+	MemoryInMB      int           `xml:"MemoryInMB"`
+	IPs             IPS           `xml:"Ips,omitempty"`
+	DisableFirewall bool          `xml:"-"`
+}
+
+type MappedFolders struct {
+	MappedFolder []MappedFolder `xml:"MappedFolder"`
+}
+
+type LogonCommands struct {
+	Command []string `xml:"Command,omitempty"`
+}
+
+type IPS struct {
+	IP []string `xml:"IP,omitempty"`
 }
 
 type MappedFolder struct {
 	HostFolder    string `xml:"HostFolder"`
-	SandboxFolder string `xml:"SandboxFolder"`
-	ReadOnly      bool   `xml:"ReadOnly"`
+	SandboxFolder string `xml:"SandboxFolder,omitempty"`
+	ReadOnly      bool   `xml:"ReadOnly,omitempty"`
 }
 
+// Sandbox native on windows
 type Sandbox struct {
-	Config   *Config
+	Config   *Configuration
 	confFile string
 	instance *exec.Cmd
 	stdout   bytes.Buffer
 	stderr   bytes.Buffer
 }
 
-func New(ctx context.Context, config *Config) (*Sandbox, error) {
+// New sandbox with the given configuration
+func New(ctx context.Context, config *Configuration) (*Sandbox, error) {
 	if ok, err := IsInstalled(context.Background()); err != nil || !ok {
 		return nil, errors.New("sandbox feature not installed")
 	}
 
-	confFile, err := fileutil.GetTempFileName()
+	sharedFolder, err := os.MkdirTemp("", "")
 	if err != nil {
 		return nil, err
 	}
+
+	sharedFolder = filepath.Join(sharedFolder, "gozero")
+
+	if err := os.MkdirAll(sharedFolder, 0600); err != nil {
+		return nil, err
+	}
+
+	config.MappedFolders.MappedFolder = append(config.MappedFolders.MappedFolder, MappedFolder{
+		HostFolder: sharedFolder,
+	})
+
+	if config.DisableFirewall {
+		config.LogonCommands.Command = append(config.LogonCommands.Command,
+			"netsh advfirewall set allprofiles state off",
+		)
+	}
+	// collect all the callback ips
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	for _, addr := range addresses {
+		config.IPs.IP = append(config.IPs.IP, addr.String())
+	}
+
 	data, err := xml.Marshal(config)
 	if err != nil {
 		return nil, err
 	}
+	confFile := filepath.Join(sharedFolder, "config.wsb")
 	if err := os.WriteFile(confFile, data, 0600); err != nil {
 		return nil, err
 	}
 
 	s := &Sandbox{Config: config, confFile: confFile}
-	s.instance = exec.CommandContext(ctx, s.confFile)
+	s.instance = exec.CommandContext(ctx, "WindowsSandbox.exe", s.confFile)
 	s.instance.Stdout = &s.stdout
 	s.instance.Stderr = &s.stderr
 
 	return s, nil
 }
 
-func (s *Sandbox) Run(ctx context.Context) error {
-	return s.instance.Run()
+func (s *Sandbox) Run(ctx context.Context, cmd string) error {
+	return errors.New("not implemented")
 }
 
+// Start the instance
 func (s *Sandbox) Start() error {
 	return s.instance.Start()
 }
 
+// Wait for the instance
 func (s *Sandbox) Wait() error {
 	return s.instance.Wait()
 }
 
+// Stop the instance
 func (s *Sandbox) Stop() error {
 	err := s.instance.Cancel()
 	if err != nil {
@@ -91,6 +138,7 @@ func (s *Sandbox) Stop() error {
 	return nil
 }
 
+// Clear the instance after stop
 func (s *Sandbox) Clear() error {
 	if err := s.Stop(); err != nil {
 		return err

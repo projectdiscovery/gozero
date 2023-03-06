@@ -1,4 +1,4 @@
-package gozero
+package command
 
 import "strings"
 
