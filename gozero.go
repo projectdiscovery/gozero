@@ -16,47 +16,6 @@ func New(options *Options) (*Gozero, error) {
 	return &Gozero{Options: options}, nil
 }
 
-// func (g *Gozero) ExecWithSandbox(ctx context.Context, input *Source, cmd *command.Command) (*Source, error) {
-// 	// check if the sandbox functionality is supported
-// 	ok, err := sandbox.IsEnabled(ctx)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if !ok {
-// 		return nil, errors.New("sandbox mode not supported")
-// 	}
-
-// 	// mount all sources into mounted folders
-// 	output, err := NewSource()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	sharedFolders := []sandbox.MappedFolder{
-// 		// input
-// 		{HostFolder: input.Filename, ReadOnly: true},
-// 		// output
-// 		{HostFolder: output.Filename},
-// 		// cmd - mount the binary folder as read-only
-// 		{HostFolder: cmd.Name, ReadOnly: true},
-// 	}
-
-// 	sandboxConfig := sandbox.Config{
-// 		MappedFolders: sharedFolders,
-// 		Networking:    sandbox.Enable,
-// 		LogonCommand:  fmt.Sprintf("callback -input %s -output %s %s %s", input.Filename, output.Filename, cmd.Name, strings.Join(cmd.Args, " ")),
-// 	}
-// 	gSandbox, err := sandbox.New(ctx, &sandboxConfig)
-// 	if err != nil {
-// 		return output, nil
-// 	}
-// 	_ = gSandbox.Run(ctx)
-// 	//todo: download a helium pipeglue within the sandbox and glue stdin/stout via networking
-
-// 	return output, errors.New("partially implemented")
-// }
-
 func (g *Gozero) Exec(ctx context.Context, input *Source, cmd *command.Command) (*Source, error) {
 	output, err := NewSource()
 	if err != nil {

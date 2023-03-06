@@ -54,7 +54,7 @@ type MappedFolder struct {
 }
 
 // Sandbox native on windows
-type Sandbox struct {
+type SandboxWindows struct {
 	Config   *Configuration
 	confFile string
 	instance *exec.Cmd
@@ -63,7 +63,7 @@ type Sandbox struct {
 }
 
 // New sandbox with the given configuration
-func New(ctx context.Context, config *Configuration) (*Sandbox, error) {
+func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 	if ok, err := IsInstalled(context.Background()); err != nil || !ok {
 		return nil, errors.New("sandbox feature not installed")
 	}
@@ -106,7 +106,7 @@ func New(ctx context.Context, config *Configuration) (*Sandbox, error) {
 		return nil, err
 	}
 
-	s := &Sandbox{Config: config, confFile: confFile}
+	s := &SandboxWindows{Config: config, confFile: confFile}
 	s.instance = exec.CommandContext(ctx, "WindowsSandbox.exe", s.confFile)
 	s.instance.Stdout = &s.stdout
 	s.instance.Stderr = &s.stderr
@@ -114,22 +114,22 @@ func New(ctx context.Context, config *Configuration) (*Sandbox, error) {
 	return s, nil
 }
 
-func (s *Sandbox) Run(ctx context.Context, cmd string) error {
+func (s *SandboxWindows) Run(ctx context.Context, cmd string) error {
 	return errors.New("not implemented")
 }
 
 // Start the instance
-func (s *Sandbox) Start() error {
+func (s *SandboxWindows) Start() error {
 	return s.instance.Start()
 }
 
 // Wait for the instance
-func (s *Sandbox) Wait() error {
+func (s *SandboxWindows) Wait() error {
 	return s.instance.Wait()
 }
 
 // Stop the instance
-func (s *Sandbox) Stop() error {
+func (s *SandboxWindows) Stop() error {
 	err := s.instance.Cancel()
 	if err != nil {
 		return err
@@ -139,7 +139,7 @@ func (s *Sandbox) Stop() error {
 }
 
 // Clear the instance after stop
-func (s *Sandbox) Clear() error {
+func (s *SandboxWindows) Clear() error {
 	if err := s.Stop(); err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func shellExec(ctx context.Context, args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-func IsEnabled(ctx context.Context) (bool, error) {
+func isEnabled(ctx context.Context) (bool, error) {
 	stdout, _, err := shellExec(ctx, "Get-WindowsOptionalFeature", "-FeatureName", `"Containers-DisposableClientVM"`, "-Online")
 	if err != nil {
 		return false, err
@@ -172,7 +172,7 @@ func IsEnabled(ctx context.Context) (bool, error) {
 	return regexp.MatchString(`(?m)State\s*:\s*Enabled`, stdout)
 }
 
-func IsInstalled(ctx context.Context) (bool, error) {
+func isInstalled(ctx context.Context) (bool, error) {
 	_, err := exec.LookPath("WindowsSandbox.exe")
 	if err != nil {
 		return false, err
@@ -180,7 +180,7 @@ func IsInstalled(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func Activate(ctx context.Context) (bool, error) {
+func activate(ctx context.Context) (bool, error) {
 	_, _, err := shellExec(ctx, "Enable-WindowsOptionalFeature", "-FeatureName", `"Containers-DisposableClientVM"`, "-NoRestart", "True")
 	if err != nil {
 		return false, err
@@ -189,7 +189,7 @@ func Activate(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func Deactivate(ctx context.Context) (bool, error) {
+func deactvate(ctx context.Context) (bool, error) {
 	_, _, err := shellExec(ctx, "Disable-WindowsOptionalFeature", "-FeatureName", `"Containers-DisposableClientVM"`, "-Online")
 	if err != nil {
 		return false, err
