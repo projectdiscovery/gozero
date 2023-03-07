@@ -114,7 +114,7 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 	return s, nil
 }
 
-func (s *SandboxWindows) Run(ctx context.Context, cmd string) error {
+func (s *SandboxWindows) Run(ctx context.Context, cmd string) (*command.Result, error) {
 	return errors.New("not implemented")
 }
 

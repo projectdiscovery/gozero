@@ -9,9 +9,12 @@ import (
 )
 
 func main() {
-	command := "ifconfig"
+	command := "hostname"
 	rules := []sandbox.Rule{
 		{Action: sandbox.Deny, Scope: sandbox.FileWrite},
+		{Action: sandbox.Allow, Scope: sandbox.FileWrite, Args: []sandbox.Arg{
+			{Type: sandbox.SubPath, Params: []any{"/tmp"}},
+		}},
 	}
 	cfg := sandbox.Configuration{
 		Rules: rules,
@@ -22,7 +25,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := instance.Run(context.Background(), command); err != nil {
+	if _, err := instance.Run(context.Background(), command); err != nil {
 		log.Fatal(err)
 	}
 

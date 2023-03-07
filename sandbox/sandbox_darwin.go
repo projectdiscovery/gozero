@@ -7,10 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/projectdiscovery/gozero/command"
 )
 
 type Configuration struct {
@@ -72,15 +75,13 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 
 	sharedFolder = filepath.Join(sharedFolder, "gozero")
 
-	if err := os.MkdirAll(sharedFolder, 0600); err != nil {
+	if err := os.MkdirAll(sharedFolder, 0755); err != nil {
 		return nil, err
 	}
 
 	confFile := filepath.Join(sharedFolder, "config.sb")
-
 	var confData bytes.Buffer
-	confData.WriteString("(version 1\n")
-	confData.WriteString("(debug deny)\n")
+	confData.WriteString("(version 1)\n")
 	confData.WriteString("(allow default)\n")
 	for _, rule := range config.Rules {
 		if rule.Action != "" {
@@ -92,23 +93,28 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 		for _, arg := range rule.Args {
 			confData.WriteString(fmt.Sprintf("("+string(arg.Type)+")", arg.Params...))
 		}
+		if rule.Action != "" {
+			confData.WriteString(")")
+		}
 	}
 	if err := os.WriteFile(confFile, confData.Bytes(), 0600); err != nil {
 		return nil, err
 	}
 
+	log.Println(confData.String())
+
 	s := &SandboxDarwin{Config: config, confFile: confFile}
 	return s, nil
 }
 
-func (s *SandboxDarwin) Run(ctx context.Context, cmd string) error {
+func (s *SandboxDarwin) Run(ctx context.Context, cmd string) (*command.Result, error) {
 	params := []string{"-f", s.confFile}
 	params = append(params, strings.Split(cmd, " ")...)
 	cmdContext := exec.CommandContext(ctx, "sandbox-exec", params...)
 	var stdout, stderr bytes.Buffer
 	cmdContext.Stdout = &stdout
 	cmdContext.Stderr = &stderr
-	return cmdContext.Run()
+	return &command.Result{Stdout: stdout.String(), Stderr: stderr.String()}, cmdContext.Run()
 }
 
 // Start the instance
