@@ -156,6 +156,6 @@ func activate(ctx context.Context) (bool, error) {
 	return false, errors.New("sandbox is a linux native functionality")
 }
 
-func deactvate(ctx context.Context) (bool, error) {
-	return false, errors.New("	 can't be disabled")
+func deactivate(ctx context.Context) (bool, error) {
+	return false, errors.New("can't be disabled")
 }
