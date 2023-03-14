@@ -114,7 +114,8 @@ func (s *SandboxDarwin) Run(ctx context.Context, cmd string) (*command.Result, e
 	var stdout, stderr bytes.Buffer
 	cmdContext.Stdout = &stdout
 	cmdContext.Stderr = &stderr
-	return &command.Result{Stdout: stdout.String(), Stderr: stderr.String()}, cmdContext.Run()
+	err := cmdContext.Run()
+	return &command.Result{Stdout: stdout.String(), Stderr: stderr.String()}, err
 }
 
 // Start the instance
