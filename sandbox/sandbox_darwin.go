@@ -119,17 +119,17 @@ func (s *SandboxDarwin) Run(ctx context.Context, cmd string) (*command.Result, e
 
 // Start the instance
 func (s *SandboxDarwin) Start() error {
-	return errors.New("not implemented")
+	return ErrNotImplemented
 }
 
 // Wait for the instance
 func (s *SandboxDarwin) Wait() error {
-	return errors.New("not implemented")
+	return ErrNotImplemented
 }
 
 // Stop the instance
 func (s *SandboxDarwin) Stop() error {
-	return errors.New("not implemented")
+	return ErrNotImplemented
 }
 
 // Clear the instance after stop

@@ -122,22 +122,22 @@ func (s *SandboxLinux) Run(ctx context.Context, cmd string) (*command.Result, er
 
 // Start the instance
 func (s *SandboxLinux) Start() error {
-	return errors.New("not implemented")
+	return ErrNotImplemented
 }
 
 // Wait for the instance
 func (s *SandboxLinux) Wait() error {
-	return errors.New("not implemented")
+	return ErrNotImplemented
 }
 
 // Stop the instance
 func (s *SandboxLinux) Stop() error {
-	return errors.New("not implemented")
+	return ErrNotImplemented
 }
 
 // Clear the instance after stop
 func (s *SandboxLinux) Clear() error {
-	return errors.New("not implemented")
+	return ErrNotImplemented
 }
 
 func isEnabled(ctx context.Context) (bool, error) {
