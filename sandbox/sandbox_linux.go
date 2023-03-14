@@ -145,7 +145,7 @@ func isEnabled(ctx context.Context) (bool, error) {
 }
 
 func isInstalled(ctx context.Context) (bool, error) {
-	_, err := exec.LookPath("systemd-run")
+	_, err := exec.LookPath("-run")
 	if err != nil {
 		return false, err
 	}
