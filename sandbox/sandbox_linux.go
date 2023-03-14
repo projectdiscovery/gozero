@@ -117,7 +117,8 @@ func (s *SandboxLinux) Run(ctx context.Context, cmd string) (*command.Result, er
 	var stdout, stderr bytes.Buffer
 	cmdContext.Stdout = &stdout
 	cmdContext.Stderr = &stderr
-	return &command.Result{Stdout: stdout.String(), Stderr: stderr.String()}, cmdContext.Run()
+	err := cmdContext.Run()
+	return &command.Result{Stdout: stdout.String(), Stderr: stderr.String()}, err
 }
 
 // Start the instance
@@ -145,7 +146,7 @@ func isEnabled(ctx context.Context) (bool, error) {
 }
 
 func isInstalled(ctx context.Context) (bool, error) {
-	_, err := exec.LookPath("-run")
+	_, err := exec.LookPath("systemd-run")
 	if err != nil {
 		return false, err
 	}

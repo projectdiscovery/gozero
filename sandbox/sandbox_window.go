@@ -117,7 +117,7 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 }
 
 func (s *SandboxWindows) Run(ctx context.Context, cmd string) (*command.Result, error) {
-	return nil, ErrNotImplemented
+	return nil, ErrAgentRequired
 }
 
 // Start the instance
