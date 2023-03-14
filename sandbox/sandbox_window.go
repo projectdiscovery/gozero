@@ -189,7 +189,7 @@ func activate(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func deactvate(ctx context.Context) (bool, error) {
+func deactivate(ctx context.Context) (bool, error) {
 	_, _, err := shellExec(ctx, "Disable-WindowsOptionalFeature", "-FeatureName", `"Containers-DisposableClientVM"`, "-Online")
 	if err != nil {
 		return false, err

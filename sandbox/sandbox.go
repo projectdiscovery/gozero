@@ -19,7 +19,7 @@ func Activate(ctx context.Context) (bool, error) {
 }
 
 func Deactivate(ctx context.Context) (bool, error) {
-	return deactvate(ctx)
+	return deactivate(ctx)
 }
 
 type Sandbox interface {

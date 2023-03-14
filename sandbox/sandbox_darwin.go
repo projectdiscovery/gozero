@@ -153,6 +153,6 @@ func activate(ctx context.Context) (bool, error) {
 	return false, errors.New("sandbox is a darwin native functionality")
 }
 
-func deactvate(ctx context.Context) (bool, error) {
+func deactivate(ctx context.Context) (bool, error) {
 	return false, errors.New("sandbox can't be disabled")
 }
