@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+
+	"github.com/projectdiscovery/gozero/command"
 )
 
 const DefaultMountPoint = `C:\Users\WDAGUtilityAccount\Desktop`
@@ -115,7 +117,7 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 }
 
 func (s *SandboxWindows) Run(ctx context.Context, cmd string) (*command.Result, error) {
-	return errors.New("not implemented")
+	return nil, errors.New("not implemented")
 }
 
 // Start the instance
