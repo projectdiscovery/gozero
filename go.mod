@@ -3,7 +3,7 @@ module github.com/projectdiscovery/gozero
 go 1.18
 
 require (
-	github.com/projectdiscovery/utils v0.0.3
+	github.com/projectdiscovery/utils v0.0.13
 	github.com/stretchr/testify v1.8.1
 )
 

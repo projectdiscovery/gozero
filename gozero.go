@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"os/exec"
+
+	"github.com/projectdiscovery/gozero/command"
 )
 
 type Gozero struct {
@@ -14,7 +16,7 @@ func New(options *Options) (*Gozero, error) {
 	return &Gozero{Options: options}, nil
 }
 
-func (g *Gozero) Exec(ctx context.Context, input *Source, cmd *Command) (*Source, error) {
+func (g *Gozero) Exec(ctx context.Context, input *Source, cmd *command.Command) (*Source, error) {
 	output, err := NewSource()
 	if err != nil {
 		return nil, err

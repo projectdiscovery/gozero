@@ -1,6 +1,7 @@
 package gozero
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestEval(t *testing.T) {
 	// empty input
 	input, err := NewSource()
 	require.Nil(t, err)
-	out, err := pyzero.Eval(src, input)
+	out, err := pyzero.Eval(context.Background(), src, input)
 	require.Nil(t, err)
 	output, err := out.ReadAll()
 	require.Nil(t, err)
