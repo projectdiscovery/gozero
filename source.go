@@ -11,6 +11,7 @@ import (
 )
 
 type Source struct {
+	Variables       []Variable
 	Temporary       bool
 	CloseAfterWrite bool
 	Filename        string
@@ -84,4 +85,10 @@ func (s *Source) Cleanup() error {
 
 func (s *Source) ReadAll() ([]byte, error) {
 	return os.ReadFile(s.Filename)
+}
+
+func (s *Source) AddVariable(vars ...Variable) {
+	for _, v := range vars {
+		s.Variables = append(s.Variables, v)
+	}
 }

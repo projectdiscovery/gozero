@@ -24,6 +24,8 @@ func (g *Gozero) Exec(ctx context.Context, input *Source, cmd *command.Command) 
 	gCmd := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
 	gCmd.Stdin = input.File
 	gCmd.Stdout = output.File
+	gCmd.Env = extendWithVars(gCmd.Environ(), input.Variables...)
+
 	return output, gCmd.Run()
 }
 
@@ -50,6 +52,7 @@ func (g *Gozero) run(ctx context.Context, src, input, output *Source, args ...st
 	gCmd := exec.CommandContext(ctx, g.Options.Engine, cmdArgs...)
 	gCmd.Stdin = input.File
 	gCmd.Stdout = output.File
+	gCmd.Env = extendWithVars(gCmd.Environ(), input.Variables...)
 	return gCmd.Run()
 }
 
@@ -58,6 +61,7 @@ func (g *Gozero) runWithApi(ctx context.Context, src, input, output *Source, arg
 	cmdArgs := []string{g.Options.Engine, src.Filename}
 	cmdArgs = append(cmdArgs, args...)
 	procAttr.Files = []*os.File{input.File, output.File, nil}
+	procAttr.Env = extendWithVars(procAttr.Env, input.Variables...)
 	proc, err := os.StartProcess(g.Options.Engine, cmdArgs, &procAttr)
 	if err != nil {
 		return err
