@@ -1,8 +1,8 @@
 package gozero
 
 type Options struct {
-	Command            string
-	Engine             string
+	Engines            []string
+	engine             string
 	PreferStartProcess bool
 	Sandbox            bool
 }

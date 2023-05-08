@@ -88,7 +88,5 @@ func (s *Source) ReadAll() ([]byte, error) {
 }
 
 func (s *Source) AddVariable(vars ...Variable) {
-	for _, v := range vars {
-		s.Variables = append(s.Variables, v)
-	}
+	s.Variables = append(s.Variables, vars...)
 }
