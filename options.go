@@ -1,8 +1,10 @@
 package gozero
 
 type Options struct {
-	Command            string
-	Engine             string
-	PreferStartProcess bool
-	Sandbox            bool
+	Engines                  []string
+	Args                     []string
+	engine                   string
+	PreferStartProcess       bool
+	Sandbox                  bool
+	EarlyCloseFileDescriptor bool
 }

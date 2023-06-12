@@ -11,6 +11,7 @@ import (
 )
 
 type Source struct {
+	Variables       []Variable
 	Temporary       bool
 	CloseAfterWrite bool
 	Filename        string
@@ -18,7 +19,7 @@ type Source struct {
 }
 
 func NewSource() (*Source, error) {
-	return NewSourceWithString("")
+	return NewSourceWithString("", "")
 }
 
 func NewSourceWithFile(src string) (*Source, error) {
@@ -32,16 +33,16 @@ func NewSourceWithFile(src string) (*Source, error) {
 	return nil, errors.New("file does not exist")
 }
 
-func NewSourceWithBytes(src []byte) (*Source, error) {
-	return NewSourceWithReader(bytes.NewReader(src))
+func NewSourceWithBytes(src []byte, wantedPattern string) (*Source, error) {
+	return NewSourceWithReader(bytes.NewReader(src), wantedPattern)
 }
 
-func NewSourceWithString(src string) (*Source, error) {
-	return NewSourceWithReader(strings.NewReader(src))
+func NewSourceWithString(src, wantedPattern string) (*Source, error) {
+	return NewSourceWithReader(strings.NewReader(src), wantedPattern)
 }
 
-func NewSourceWithReader(src io.Reader) (*Source, error) {
-	srcFile, err := os.CreateTemp("", "")
+func NewSourceWithReader(src io.Reader, wantedPattern string) (*Source, error) {
+	srcFile, err := os.CreateTemp("", wantedPattern)
 	if err != nil {
 		return nil, err
 	}
@@ -84,4 +85,8 @@ func (s *Source) Cleanup() error {
 
 func (s *Source) ReadAll() ([]byte, error) {
 	return os.ReadFile(s.Filename)
+}
+
+func (s *Source) AddVariable(vars ...Variable) {
+	s.Variables = append(s.Variables, vars...)
 }
