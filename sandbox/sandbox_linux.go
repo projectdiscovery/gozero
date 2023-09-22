@@ -3,14 +3,13 @@
 package sandbox
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"log"
 	"os/exec"
 	"strings"
 
-	"github.com/projectdiscovery/gozero/command"
+	"github.com/projectdiscovery/gozero/cmdexec"
+	"github.com/projectdiscovery/gozero/types"
 	stringsutil "github.com/projectdiscovery/utils/strings"
 )
 
@@ -108,17 +107,12 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 	return s, nil
 }
 
-func (s *SandboxLinux) Run(ctx context.Context, cmd string) (*command.Result, error) {
+func (s *SandboxLinux) Run(ctx context.Context, cmd string) (*types.Result, error) {
 	var params []string
 	params = append(params, s.conf...)
 	params = append(params, strings.Split(cmd, " ")...)
-	log.Fatal(params)
-	cmdContext := exec.CommandContext(ctx, "systemd-run", params...)
-	var stdout, stderr bytes.Buffer
-	cmdContext.Stdout = &stdout
-	cmdContext.Stderr = &stderr
-	err := cmdContext.Run()
-	return &command.Result{Stdout: stdout.String(), Stderr: stderr.String()}, err
+	cmdContext, err := cmdexec.NewCommand("systemd-run", params...)
+	return cmdContext.Execute(ctx)
 }
 
 // Start the instance

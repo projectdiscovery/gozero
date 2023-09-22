@@ -5,7 +5,7 @@ package sandbox
 import (
 	"context"
 
-	"github.com/projectdiscovery/gozero/command"
+	"github.com/projectdiscovery/gozero/types"
 )
 
 type Configuration struct {
@@ -25,7 +25,7 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 	return nil, ErrNotImplemented
 }
 
-func (s *SandboxOther) Run(ctx context.Context, cmd string) (*command.Result, error) {
+func (s *SandboxOther) Run(ctx context.Context, cmd string) (*types.Result, error) {
 	return nil, ErrNotImplemented
 }
 

@@ -3,18 +3,20 @@ package gozero
 import (
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"time"
 
-	"github.com/projectdiscovery/gozero/command"
+	"github.com/projectdiscovery/gozero/cmdexec"
+	"github.com/projectdiscovery/gozero/types"
 	errorutil "github.com/projectdiscovery/utils/errors"
 )
 
+// Gozero is executor for gozero
 type Gozero struct {
 	Options *Options
 }
 
+// New creates a new gozero executor
 func New(options *Options) (*Gozero, error) {
 	// attempt to locate the interpreter by executing it
 	for _, engine := range options.Engines {
@@ -34,74 +36,27 @@ func New(options *Options) (*Gozero, error) {
 	return &Gozero{Options: options}, nil
 }
 
-func (g *Gozero) Exec(ctx context.Context, input *Source, cmd *command.Command) (*Source, error) {
-	output, err := NewSource()
-	if err != nil {
-		return nil, err
-	}
-	gCmd := exec.CommandContext(ctx, cmd.Name, cmd.Args...)
-	gCmd.Stdin = input.File
-	gCmd.Stdout = output.File
-	gCmd.Env = extendWithVars(gCmd.Environ(), input.Variables...)
-
-	return output, gCmd.Run()
-}
-
-func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (*Source, error) {
-	output, err := NewSource()
-	if err != nil {
-		return nil, err
-	}
+// Eval evaluates the source code and returns the output
+// input = stdin , src = source code , args = arguments
+func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (*types.Result, error) {
 	if g.Options.EarlyCloseFileDescriptor {
 		src.File.Close()
 	}
-	switch {
-	case g.Options.PreferStartProcess:
-		err = g.runWithApi(ctx, src, input, output, args...)
-	default:
-		err = g.run(ctx, src, input, output, args...)
+	allargs := []string{}
+	allargs = append(allargs, g.Options.Args...)
+	allargs = append(allargs, src.Filename)
+	allargs = append(allargs, args...)
+	gcmd, err := cmdexec.NewCommand(g.Options.engine, allargs...)
+	if err != nil {
+		// returns error if binary(engine) does not exist
+		return nil, err
 	}
+	gcmd.SetStdin(input.File)      // stdin
+	gcmd.AddVars(src.Variables...) // variables as environment variables
+
+	result, err := gcmd.Execute(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return output, nil
-}
-
-func (g *Gozero) run(ctx context.Context, src, input, output *Source, args ...string) error {
-	var cmdArgs []string
-	cmdArgs = append(cmdArgs, g.Options.Args...)
-	cmdArgs = append(cmdArgs, src.Filename)
-	cmdArgs = append(cmdArgs, args...)
-	gCmd := exec.CommandContext(ctx, g.Options.engine, cmdArgs...)
-	gCmd.Stdin = input.File
-	gCmd.Stdout = output.File
-	gCmd.Env = extendWithVars(gCmd.Environ(), input.Variables...)
-	return gCmd.Run()
-}
-
-func (g *Gozero) runWithApi(ctx context.Context, src, input, output *Source, args ...string) error {
-	var procAttr os.ProcAttr
-	cmdArgs := []string{g.Options.engine}
-	cmdArgs = append(cmdArgs, g.Options.Args...)
-	cmdArgs = append(cmdArgs, src.Filename)
-	cmdArgs = append(cmdArgs, args...)
-	procAttr.Files = []*os.File{input.File, output.File, nil}
-	procAttr.Env = extendWithVars(procAttr.Env, input.Variables...)
-	proc, err := os.StartProcess(g.Options.engine, cmdArgs, &procAttr)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		for range ctx.Done() {
-			proc.Kill()
-			return
-		}
-	}()
-
-	if _, err = proc.Wait(); err != nil {
-		return err
-	}
-
-	return nil
+	return result, nil
 }
