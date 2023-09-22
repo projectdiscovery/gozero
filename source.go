@@ -7,11 +7,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/projectdiscovery/gozero/types"
 	fileutil "github.com/projectdiscovery/utils/file"
 )
 
+// Source is a source file for gozero and is meant to
+// contain i/o for code execution
 type Source struct {
-	Variables       []Variable
+	Variables       []types.Variable
 	Temporary       bool
 	CloseAfterWrite bool
 	Filename        string
@@ -87,6 +90,6 @@ func (s *Source) ReadAll() ([]byte, error) {
 	return os.ReadFile(s.Filename)
 }
 
-func (s *Source) AddVariable(vars ...Variable) {
+func (s *Source) AddVariable(vars ...types.Variable) {
 	s.Variables = append(s.Variables, vars...)
 }

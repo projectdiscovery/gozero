@@ -15,3 +15,8 @@ OSX implements native isolation via the command `sandbox-exec`. The command line
 ### Linux
 
 On Linux, the functionality is implemented with the default command `systemd-run`, which should be available on most systems and allow a vast fine-grained sandbox configuration via SecComp and EBPF
+
+
+## Note:
+
+Sandbox is not enabled by default and needs to be used manually through sdk

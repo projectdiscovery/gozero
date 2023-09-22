@@ -3,7 +3,7 @@ package sandbox
 import (
 	"context"
 
-	"github.com/projectdiscovery/gozero/command"
+	"github.com/projectdiscovery/gozero/types"
 )
 
 func IsEnabled(ctx context.Context) (bool, error) {
@@ -23,7 +23,7 @@ func Deactivate(ctx context.Context) (bool, error) {
 }
 
 type Sandbox interface {
-	Run(ctx context.Context, cmd string) (*command.Result, error)
+	Run(ctx context.Context, cmd string) (*types.Result, error)
 	Start() error
 	Wait() error
 	Stop() error

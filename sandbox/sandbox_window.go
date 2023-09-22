@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/projectdiscovery/gozero/command"
+	"github.com/projectdiscovery/gozero/types"
 )
 
 const DefaultMountPoint = `C:\Users\WDAGUtilityAccount\Desktop`
@@ -116,7 +116,7 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 	return s, nil
 }
 
-func (s *SandboxWindows) Run(ctx context.Context, cmd string) (*command.Result, error) {
+func (s *SandboxWindows) Run(ctx context.Context, cmd string) (*types.Result, error) {
 	return nil, ErrAgentRequired
 }
 

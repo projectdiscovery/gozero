@@ -13,7 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/projectdiscovery/gozero/command"
+	"github.com/projectdiscovery/gozero/cmdexec"
+	"github.com/projectdiscovery/gozero/types"
 )
 
 type Configuration struct {
@@ -107,15 +108,14 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 	return s, nil
 }
 
-func (s *SandboxDarwin) Run(ctx context.Context, cmd string) (*command.Result, error) {
+func (s *SandboxDarwin) Run(ctx context.Context, cmd string) (*types.Result, error) {
 	params := []string{"-f", s.confFile}
 	params = append(params, strings.Split(cmd, " ")...)
-	cmdContext := exec.CommandContext(ctx, "sandbox-exec", params...)
-	var stdout, stderr bytes.Buffer
-	cmdContext.Stdout = &stdout
-	cmdContext.Stderr = &stderr
-	err := cmdContext.Run()
-	return &command.Result{Stdout: stdout.String(), Stderr: stderr.String()}, err
+	cmdContext, err := cmdexec.NewCommand("sandbox-exec", params...)
+	if err != nil {
+		return nil, err
+	}
+	return cmdContext.Execute(ctx)
 }
 
 // Start the instance
