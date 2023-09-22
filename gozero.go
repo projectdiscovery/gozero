@@ -51,12 +51,9 @@ func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (
 		// returns error if binary(engine) does not exist
 		return nil, err
 	}
-	gcmd.SetStdin(input.File)      // stdin
+	gcmd.SetStdin(input.File) // stdin
+	// add both input and src variables if any
 	gcmd.AddVars(src.Variables...) // variables as environment variables
-
-	result, err := gcmd.Execute(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+	gcmd.AddVars(input.Variables...)
+	return gcmd.Execute(ctx)
 }
