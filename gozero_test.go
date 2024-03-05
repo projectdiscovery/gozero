@@ -18,7 +18,7 @@ func TestEval(t *testing.T) {
 	}
 	pyzero, err := New(opts)
 	require.Nil(t, err)
-	src, err := NewSourceWithString(`print(1)`, "")
+	src, err := NewSourceWithString(`print(1)`, "", "")
 	require.Nil(t, err)
 	// empty input
 	input, err := NewSource()
