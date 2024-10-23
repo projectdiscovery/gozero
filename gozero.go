@@ -25,7 +25,7 @@ func New(options *Options) (*Gozero, error) {
 
 		cmd := exec.CommandContext(ctx, engine)
 		err := cmd.Run()
-		if err == nil || errorutil.IsAny(err, exec.ErrWaitDelay) {
+		if err == nil || errorutil.IsAny(err, exec.ErrWaitDelay, errors.New("exit status 2")) {
 			options.engine = engine
 			break
 		}
