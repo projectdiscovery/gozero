@@ -70,7 +70,6 @@ func (s *Source) Close() error {
 	if s.File != nil {
 		return s.File.Close()
 	}
-
 	return nil
 }
 
@@ -78,12 +77,10 @@ func (s *Source) Cleanup() error {
 	if err := s.Close(); err != nil {
 		return err
 	}
-
 	if s.Temporary {
 		return os.RemoveAll(s.Filename)
 	}
-
-	return errors.New("no cleanup needed")
+	return nil
 }
 
 func (s *Source) ReadAll() ([]byte, error) {

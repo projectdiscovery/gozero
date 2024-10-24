@@ -3,6 +3,7 @@ package gozero
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 
 	"github.com/projectdiscovery/gozero/cmdexec"
@@ -16,14 +17,19 @@ type Gozero struct {
 
 // New creates a new gozero executor
 func New(options *Options) (*Gozero, error) {
+	if len(options.Engines) == 0 {
+		return nil, errors.New("no engines provided")
+	}
 	// attempt to locate the interpreter by executing it
 	for _, engine := range options.Engines {
 		// use lookpath to check if engine is available
 		// this ignores path confusion issues where binary with same name exists in current path
-		_, err := exec.LookPath(engine)
+		fpath, err := exec.LookPath(engine)
 		if err != nil {
+			fmt.Printf("engine %s not found: %v\n", engine, err)
 			continue
 		} else {
+			options.engine = fpath
 			break
 		}
 	}
