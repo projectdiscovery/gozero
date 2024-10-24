@@ -47,8 +47,8 @@ func (c *Command) SetStdin(stdin io.Reader) {
 }
 
 // EnableDebugMode enables the debug mode for the command.
-func (c *Command) EnableDebugMode(mode bool) {
-	c.debugMode = mode
+func (c *Command) EnableDebugMode() {
+	c.debugMode = true
 }
 
 // Execute executes the command and returns the output.
@@ -60,9 +60,9 @@ func (c *Command) Execute(ctx context.Context) (*types.Result, error) {
 	}
 	res := &types.Result{Command: cmd.String()}
 	if c.debugMode {
-		res.DebugData = bytes.Buffer{}
-		cmd.Stdout = io.MultiWriter(cmd.Stdout, &res.DebugData)
-		cmd.Stderr = io.MultiWriter(cmd.Stderr, &res.DebugData)
+		res.DebugData = &bytes.Buffer{}
+		cmd.Stdout = io.MultiWriter(&res.Stdout, res.DebugData)
+		cmd.Stderr = io.MultiWriter(&res.Stderr, res.DebugData)
 	} else {
 		cmd.Stdout = &res.Stdout
 		cmd.Stderr = &res.Stderr

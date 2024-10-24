@@ -3,7 +3,6 @@ package gozero
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os/exec"
 
 	"github.com/projectdiscovery/gozero/cmdexec"
@@ -26,7 +25,6 @@ func New(options *Options) (*Gozero, error) {
 		// this ignores path confusion issues where binary with same name exists in current path
 		fpath, err := exec.LookPath(engine)
 		if err != nil {
-			fmt.Printf("engine %s not found: %v\n", engine, err)
 			continue
 		} else {
 			options.engine = fpath
@@ -53,6 +51,9 @@ func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (
 	if err != nil {
 		// returns error if binary(engine) does not exist
 		return nil, err
+	}
+	if g.Options.DebugMode {
+		gcmd.EnableDebugMode()
 	}
 	gcmd.SetStdin(input.File) // stdin
 	// add both input and src variables if any

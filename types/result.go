@@ -16,7 +16,7 @@ type Result struct {
 	Stdout    bytes.Buffer
 	Stderr    bytes.Buffer
 	exitErr   *exec.ExitError // return exit error this includes exit code , command sysusage and more
-	DebugData bytes.Buffer    // only available when debug mode is enabled
+	DebugData *bytes.Buffer   // only available when debug mode is enabled
 }
 
 // GetExitError returns the exit error if any.
