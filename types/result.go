@@ -12,10 +12,11 @@ import (
 
 // Result contains the result of a command execution.
 type Result struct {
-	Command string // Include final command that was executed
-	Stdout  bytes.Buffer
-	Stderr  bytes.Buffer
-	exitErr *exec.ExitError // return exit error this includes exit code , command sysusage and more
+	Command   string // Include final command that was executed
+	Stdout    bytes.Buffer
+	Stderr    bytes.Buffer
+	exitErr   *exec.ExitError // return exit error this includes exit code , command sysusage and more
+	DebugData bytes.Buffer    // only available when debug mode is enabled
 }
 
 // GetExitError returns the exit error if any.

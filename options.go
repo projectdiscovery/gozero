@@ -7,4 +7,7 @@ type Options struct {
 	PreferStartProcess       bool
 	Sandbox                  bool
 	EarlyCloseFileDescriptor bool
+	// When Debug Mode is set to true, Output result will contain
+	// more debug information
+	DebugMode bool
 }
