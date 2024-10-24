@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"time"
 
 	"github.com/projectdiscovery/gozero/cmdexec"
 	"github.com/projectdiscovery/gozero/types"
-	errorutil "github.com/projectdiscovery/utils/errors"
 )
 
 // Gozero is executor for gozero
@@ -18,15 +16,18 @@ type Gozero struct {
 
 // New creates a new gozero executor
 func New(options *Options) (*Gozero, error) {
+	if len(options.Engines) == 0 {
+		return nil, errors.New("no engines provided")
+	}
 	// attempt to locate the interpreter by executing it
 	for _, engine := range options.Engines {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, engine)
-		err := cmd.Run()
-		if err == nil || errorutil.IsAny(err, exec.ErrWaitDelay) {
-			options.engine = engine
+		// use lookpath to check if engine is available
+		// this ignores path confusion issues where binary with same name exists in current path
+		fpath, err := exec.LookPath(engine)
+		if err != nil {
+			continue
+		} else {
+			options.engine = fpath
 			break
 		}
 	}
@@ -50,6 +51,9 @@ func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (
 	if err != nil {
 		// returns error if binary(engine) does not exist
 		return nil, err
+	}
+	if g.Options.DebugMode {
+		gcmd.EnableDebugMode()
 	}
 	gcmd.SetStdin(input.File) // stdin
 	// add both input and src variables if any

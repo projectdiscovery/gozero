@@ -2,6 +2,7 @@
 package cmdexec
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os/exec"
@@ -12,10 +13,11 @@ import (
 
 // Command is a command to execute.
 type Command struct {
-	Binary string // Full path to the binary to execute
-	Args   []string
-	Env    []string
-	stdin  io.Reader
+	Binary    string // Full path to the binary to execute
+	Args      []string
+	Env       []string
+	stdin     io.Reader
+	debugMode bool
 }
 
 // NewCommand creates a new command with the provided binary and arguments.
@@ -44,6 +46,11 @@ func (c *Command) SetStdin(stdin io.Reader) {
 	c.stdin = stdin
 }
 
+// EnableDebugMode enables the debug mode for the command.
+func (c *Command) EnableDebugMode() {
+	c.debugMode = true
+}
+
 // Execute executes the command and returns the output.
 func (c *Command) Execute(ctx context.Context) (*types.Result, error) {
 	cmd := exec.CommandContext(ctx, c.Binary, c.Args...)
@@ -52,8 +59,14 @@ func (c *Command) Execute(ctx context.Context) (*types.Result, error) {
 		cmd.Env = append(cmd.Environ(), c.Env...)
 	}
 	res := &types.Result{Command: cmd.String()}
-	cmd.Stdout = &res.Stdout
-	cmd.Stderr = &res.Stderr
+	if c.debugMode {
+		res.DebugData = &bytes.Buffer{}
+		cmd.Stdout = io.MultiWriter(&res.Stdout, res.DebugData)
+		cmd.Stderr = io.MultiWriter(&res.Stderr, res.DebugData)
+	} else {
+		cmd.Stdout = &res.Stdout
+		cmd.Stderr = &res.Stderr
+	}
 	if c.stdin != nil {
 		cmd.Stdin = c.stdin
 	}

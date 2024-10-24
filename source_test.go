@@ -65,7 +65,11 @@ func TestNewSourceWithReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create new source with reader: %v", err)
 	}
-	defer source.Cleanup()
+	defer func() {
+		if err := source.Cleanup(); err != nil {
+			t.Errorf("Failed to cleanup new source with reader: %v", err)
+		}
+	}()
 
 	if !source.Temporary {
 		t.Error("Expected source to be marked as temporary")

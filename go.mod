@@ -1,6 +1,6 @@
 module github.com/projectdiscovery/gozero
 
-go 1.21
+go 1.21.0
 
 require (
 	github.com/projectdiscovery/utils v0.0.55
