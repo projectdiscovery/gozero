@@ -2,7 +2,6 @@ package gozero
 
 import (
 	"context"
-	"errors"
 	"os/exec"
 
 	"github.com/projectdiscovery/gozero/cmdexec"
@@ -17,7 +16,7 @@ type Gozero struct {
 // New creates a new gozero executor
 func New(options *Options) (*Gozero, error) {
 	if len(options.Engines) == 0 {
-		return nil, errors.New("no engines provided")
+		return nil, ErrNoEngines
 	}
 	// attempt to locate the interpreter by executing it
 	for _, engine := range options.Engines {
@@ -32,7 +31,7 @@ func New(options *Options) (*Gozero, error) {
 		}
 	}
 	if options.engine == "" {
-		return nil, errors.New("no valid engine found")
+		return nil, ErrNoValidEngine
 	}
 	return &Gozero{Options: options}, nil
 }

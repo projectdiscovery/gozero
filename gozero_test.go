@@ -32,3 +32,27 @@ func TestEval(t *testing.T) {
 	err = input.Cleanup()
 	require.Nil(t, err)
 }
+
+func TestErr(t *testing.T) {
+	opts := &Options{}
+	if osutils.IsWindows() {
+		opts.Engines = []string{"nonexistent.exe"}
+	} else {
+		opts.Engines = []string{"nonexistent"}
+	}
+	gozero, err := New(opts)
+	require.NotNil(t, err)
+	require.Nil(t, gozero)
+	require.ErrorIs(t, err, ErrNoValidEngine)
+
+	opts.Engines = []string{}
+	gozero, err = New(opts)
+	require.NotNil(t, err)
+	require.Nil(t, gozero)
+	require.ErrorIs(t, err, ErrNoEngines)
+
+	opts.Engines = []string{"python3"}
+	gozero, err = New(opts)
+	require.Nil(t, err)
+	require.NotNil(t, gozero)
+}
