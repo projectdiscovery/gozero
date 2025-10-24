@@ -155,7 +155,7 @@ exec %s
 	// Start container
 	err = s.dockerClient.ContainerStart(runCtx, containerID, container.StartOptions{})
 	if err != nil {
-		s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
+		_ = s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
@@ -164,7 +164,7 @@ exec %s
 
 	select {
 	case err := <-errCh:
-		s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
+		_ = s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
 		return nil, fmt.Errorf("container wait error: %w", err)
 	case result := <-waitCh:
 		// Get container logs
@@ -173,16 +173,18 @@ exec %s
 			ShowStderr: true,
 		})
 		if err != nil {
-			s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
+			_ = s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
 			return nil, fmt.Errorf("failed to get container logs: %w", err)
 		}
-		defer logs.Close()
+		defer func() {
+			_ = logs.Close()
+		}()
 
 		// Read logs
 		logData := make([]byte, 1024*1024) // 1MB buffer
 		n, err := logs.Read(logData)
 		if err != nil && err.Error() != "EOF" {
-			s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
+			_ = s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
 			return nil, fmt.Errorf("failed to read container logs: %w", err)
 		}
 
@@ -198,7 +200,7 @@ exec %s
 		}
 
 		// Always clean up container manually
-		s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
+		_ = s.dockerClient.ContainerRemove(runCtx, containerID, container.RemoveOptions{Force: true})
 
 		return cmdResult, nil
 	}
@@ -311,7 +313,7 @@ func parseMemoryLimit(memory string) int64 {
 
 	// Parse the numeric part
 	var value int64
-	fmt.Sscanf(memory, "%d", &value)
+	_, _ = fmt.Sscanf(memory, "%d", &value)
 	return value * multiplier
 }
 
@@ -329,7 +331,9 @@ func (s *SandboxDocker) pullImageIfNeeded(ctx context.Context, imageName string)
 	if err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	// Read the pull progress to completion
 	_, err = reader.Read(make([]byte, 1024))

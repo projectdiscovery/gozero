@@ -52,7 +52,7 @@ func New(options *Options) (*Gozero, error) {
 // input = stdin , src = source code , args = arguments
 func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (*types.Result, error) {
 	if g.Options.EarlyCloseFileDescriptor {
-		src.File.Close()
+		_ = src.File.Close()
 	}
 	allargs := []string{}
 	allargs = append(allargs, g.Options.Args...)

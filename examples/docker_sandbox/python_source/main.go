@@ -52,7 +52,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create Docker sandbox: %v", err)
 	}
-	defer sandboxInstance.Clear()
+	defer func() {
+		err := sandboxInstance.Clear()
+		if err != nil {
+			log.Fatalf("Failed to clear Docker sandbox: %v", err)
+		}
+	}()
 
 	// Test Python scripts using RunSource
 	scripts := []struct {
