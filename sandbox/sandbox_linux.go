@@ -112,7 +112,20 @@ func (s *SandboxLinux) Run(ctx context.Context, cmd string) (*types.Result, erro
 	params = append(params, s.conf...)
 	params = append(params, strings.Split(cmd, " ")...)
 	cmdContext, err := cmdexec.NewCommand("systemd-run", params...)
+	if err != nil {
+		return nil, err
+	}
 	return cmdContext.Execute(ctx)
+}
+
+// RunScript executes a script or source code in the sandbox
+func (s *SandboxLinux) RunScript(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
+// RunSource writes source code to a temporary file, executes it with proper permissions, and cleans up
+func (s *SandboxLinux) RunSource(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
 }
 
 // Start the instance

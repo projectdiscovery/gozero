@@ -29,6 +29,16 @@ func (s *SandboxOther) Run(ctx context.Context, cmd string) (*types.Result, erro
 	return nil, ErrNotImplemented
 }
 
+// RunScript executes a script or source code in the sandbox
+func (s *SandboxOther) RunScript(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
+// RunSource writes source code to a temporary file, executes it with proper permissions, and cleans up
+func (s *SandboxOther) RunSource(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
 // Start the instance
 func (s *SandboxOther) Start() error {
 	return ErrNotImplemented

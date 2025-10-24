@@ -118,6 +118,16 @@ func (s *SandboxDarwin) Run(ctx context.Context, cmd string) (*types.Result, err
 	return cmdContext.Execute(ctx)
 }
 
+// RunScript executes a script or source code in the sandbox
+func (s *SandboxDarwin) RunScript(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
+// RunSource writes source code to a temporary file, executes it with proper permissions, and cleans up
+func (s *SandboxDarwin) RunSource(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
 // Start the instance
 func (s *SandboxDarwin) Start() error {
 	return ErrNotImplemented

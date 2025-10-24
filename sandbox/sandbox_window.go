@@ -120,6 +120,16 @@ func (s *SandboxWindows) Run(ctx context.Context, cmd string) (*types.Result, er
 	return nil, ErrAgentRequired
 }
 
+// RunScript executes a script or source code in the sandbox
+func (s *SandboxWindows) RunScript(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
+// RunSource writes source code to a temporary file, executes it with proper permissions, and cleans up
+func (s *SandboxWindows) RunSource(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
 // Start the instance
 func (s *SandboxWindows) Start() error {
 	return s.instance.Start()
