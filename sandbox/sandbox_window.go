@@ -125,7 +125,7 @@ func (s *SandboxWindows) RunScript(ctx context.Context, source string) (*types.R
 }
 
 // RunSource writes source code to a temporary file, executes it with proper permissions, and cleans up
-func (s *SandboxWindows) RunSource(ctx context.Context, source string) (*types.Result, error) {
+func (s *SandboxWindows) RunSource(ctx context.Context, source string, interpreter string) (*types.Result, error) {
 	return nil, ErrNotImplemented
 }
 

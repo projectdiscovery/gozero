@@ -109,7 +109,7 @@ nslookup google.com 2>/dev/null || echo "DNS resolution not available"
 
 	for _, test := range scripts {
 		fmt.Printf("\n=== Running: %s ===\n", test.name)
-		result, err := sandboxInstance.RunSource(ctx, test.script)
+		result, err := sandboxInstance.RunSource(ctx, test.script, "sh")
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue

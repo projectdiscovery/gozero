@@ -17,6 +17,7 @@ func main() {
 		log.Printf("This example is only supported on Linux")
 		return
 	}
+
 	// Create Docker sandbox configuration for Python execution
 	// Using Alpine Python image for minimal size
 	config := &sandbox.DockerConfiguration{
@@ -276,7 +277,7 @@ except CustomError as e:
 
 	for _, test := range scripts {
 		fmt.Printf("\n=== Running: %s ===\n", test.name)
-		result, err := sandboxInstance.RunSource(ctx, test.script)
+		result, err := sandboxInstance.RunSource(ctx, test.script, "python3")
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue

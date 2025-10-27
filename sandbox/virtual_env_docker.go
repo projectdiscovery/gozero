@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"strings"
 	"time"
@@ -34,7 +35,7 @@ type SandboxDocker struct {
 }
 
 // NewDockerSandbox creates a new Docker-based sandbox
-func NewDockerSandbox(ctx context.Context, config *DockerConfiguration) (Sandbox, error) {
+func NewDockerSandbox(ctx context.Context, config *DockerConfiguration) (*SandboxDocker, error) {
 	// Check if Docker is available
 	if ok, err := isDockerInstalled(ctx); err != nil || !ok {
 		return nil, fmt.Errorf("docker not available: %w", err)
@@ -214,27 +215,37 @@ func (s *SandboxDocker) Run(ctx context.Context, cmd string) (*types.Result, err
 }
 
 // RunScript executes a script in the Docker container
-func (s *SandboxDocker) RunScript(ctx context.Context, source string) (*types.Result, error) {
-	return s.RunSource(ctx, source)
+func (s *SandboxDocker) RunScript(ctx context.Context, source string, interpreter string) (*types.Result, error) {
+	return s.RunSource(ctx, source, interpreter)
 }
 
-// RunSource writes source code to a temporary file inside the container, executes it with proper permissions, and cleans up
-func (s *SandboxDocker) RunSource(ctx context.Context, source string) (*types.Result, error) {
+// RunSource writes source code to a temporary file inside the container and executes it
+func (s *SandboxDocker) RunSource(ctx context.Context, source string, interpreter string) (*types.Result, error) {
 	// Generate a temporary filename
-	tmpFileName := fmt.Sprintf("/tmp/gozero_script_%d.sh", time.Now().UnixNano())
+	tmpFileName := fmt.Sprintf("/tmp/gozero_script_%d", time.Now().UnixNano())
+
+	// Check if source has a shebang - if so, use it instead of the interpreter
+	// Otherwise, use the provided interpreter
+	execCmd := fmt.Sprintf("%s %s", interpreter, tmpFileName)
+	if strings.HasPrefix(source, "#!") {
+		// Source has shebang, let it execute directly
+		execCmd = tmpFileName
+	}
 
 	// Create a script that writes the source content and then executes it
-	scriptContent := fmt.Sprintf(`#!/bin/sh
-cat > %s << 'EOF'
+	scriptContent := fmt.Sprintf(`cat > %s << 'EOF'
 %s
 EOF
 chmod +x %s
 exec %s
-`, tmpFileName, source, tmpFileName, tmpFileName)
+`, tmpFileName, source, tmpFileName, execCmd)
+
+	log.Println(tmpFileName)
+	log.Println(scriptContent)
 
 	// Execute the script directly
 	cmdParts := []string{"/bin/sh", "-c", scriptContent}
-	return s.runCommand(ctx, cmdParts, fmt.Sprintf("sh -c 'script with %s'", tmpFileName), false, "")
+	return s.runCommand(ctx, cmdParts, fmt.Sprintf("exec %s", tmpFileName), false, "")
 }
 
 // Start is not implemented for Docker sandbox as it's stateless

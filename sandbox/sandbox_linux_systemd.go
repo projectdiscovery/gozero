@@ -133,7 +133,7 @@ func (s *SandboxLinux) RunScript(ctx context.Context, source string) (*types.Res
 }
 
 // RunSource writes source code to a temporary file, executes it with proper permissions, and cleans up
-func (s *SandboxLinux) RunSource(ctx context.Context, source string) (*types.Result, error) {
+func (s *SandboxLinux) RunSource(ctx context.Context, source string, interpreter string) (*types.Result, error) {
 	return nil, ErrNotImplemented
 }
 

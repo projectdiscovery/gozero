@@ -107,8 +107,19 @@ func (g *Gozero) EvalWithVirtualEnv(ctx context.Context, envType VirtualEnvType,
 			return nil, err
 		}
 
+		// Use the engine as the interpreter
+		interpreter := g.Options.engine
+		if interpreter == "" {
+			// Fallback to first engine if engine not set
+			if len(g.Options.Engines) > 0 {
+				interpreter = g.Options.Engines[0]
+			} else {
+				interpreter = "sh" // Default to shell
+			}
+		}
+
 		// Execute the source code in the Docker container
-		result, err := dockerSandbox.RunSource(ctx, string(srcContent))
+		result, err := dockerSandbox.RunSource(ctx, string(srcContent), interpreter)
 		if err != nil {
 			return nil, err
 		}
