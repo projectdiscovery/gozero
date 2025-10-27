@@ -166,7 +166,9 @@ func (b *BubblewrapSandbox) RunSource(ctx context.Context, source string) (*type
 	if err != nil {
 		return nil, fmt.Errorf("failed to create source directory: %w", err)
 	}
-	defer os.RemoveAll(sourceDir)
+	defer func() {
+		_ = os.RemoveAll(sourceDir)
+	}()
 
 	// Create the script file in the source directory
 	scriptPath := filepath.Join(sourceDir, "script.sh")
@@ -205,7 +207,9 @@ func (b *BubblewrapSandbox) ExecuteWithOptions(ctx context.Context, options *Bub
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sandbox directory: %w", err)
 	}
-	defer os.RemoveAll(sandboxDir)
+	defer func() {
+		_ = os.RemoveAll(sandboxDir)
+	}()
 
 	return b.executeInSandbox(ctx, sandboxDir, options)
 }
@@ -343,12 +347,6 @@ func (b *BubblewrapSandbox) buildBubblewrapArgs(sandboxDir string, options *Bubb
 	// Add chdir if specified
 	if options.Chdir != "" {
 		args = append(args, "--chdir", options.Chdir)
-	}
-
-	// Add working directory if specified
-	if options.WorkingDir != "" {
-		// The working directory should already be accessible via the bind mounts
-		// bwrap will use it as the current working directory
 	}
 
 	return args
