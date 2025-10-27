@@ -68,9 +68,18 @@ type SandboxLinux struct {
 	conf   []string
 }
 
+func isSystemdInstalled(ctx context.Context) (bool, error) {
+	cmd := exec.CommandContext(ctx, "systemd-run", "--help")
+	err := cmd.Run()
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // New sandbox with the given configuration
 func New(ctx context.Context, config *Configuration) (Sandbox, error) {
-	if ok, err := IsInstalled(context.Background()); err != nil || !ok {
+	if ok, err := isSystemdInstalled(context.Background()); err != nil || !ok {
 		return nil, errors.New("sandbox feature not installed")
 	}
 
@@ -146,24 +155,4 @@ func (s *SandboxLinux) Stop() error {
 // Clear the instance after stop
 func (s *SandboxLinux) Clear() error {
 	return ErrNotImplemented
-}
-
-func isEnabled(ctx context.Context) (bool, error) {
-	return isInstalled(ctx)
-}
-
-func isInstalled(ctx context.Context) (bool, error) {
-	_, err := exec.LookPath("systemd-run")
-	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func activate(ctx context.Context) (bool, error) {
-	return false, errors.New("sandbox is a linux native functionality")
-}
-
-func deactivate(ctx context.Context) (bool, error) {
-	return false, errors.New("can't be disabled")
 }

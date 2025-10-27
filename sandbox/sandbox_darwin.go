@@ -65,7 +65,7 @@ type SandboxDarwin struct {
 
 // New sandbox with the given configuration
 func New(ctx context.Context, config *Configuration) (Sandbox, error) {
-	if ok, err := IsInstalled(context.Background()); err != nil || !ok {
+	if ok, err := isSandboxExecInstalled(context.Background()); err != nil || !ok {
 		return nil, errors.New("sandbox feature not installed")
 	}
 
@@ -148,22 +148,11 @@ func (s *SandboxDarwin) Clear() error {
 	return os.RemoveAll(s.confFile)
 }
 
-func isEnabled(ctx context.Context) (bool, error) {
-	return isInstalled(ctx)
-}
-
-func isInstalled(ctx context.Context) (bool, error) {
-	_, err := exec.LookPath("sandbox-exec")
+func isSandboxExecInstalled(ctx context.Context) (bool, error) {
+	cmd := exec.CommandContext(ctx, "sandbox-exec", "-p", "echo", "true")
+	err := cmd.Run()
 	if err != nil {
 		return false, err
 	}
 	return true, nil
-}
-
-func activate(ctx context.Context) (bool, error) {
-	return false, errors.New("sandbox is a darwin native functionality")
-}
-
-func deactivate(ctx context.Context) (bool, error) {
-	return false, errors.New("sandbox can't be disabled")
 }

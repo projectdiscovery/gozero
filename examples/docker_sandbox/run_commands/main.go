@@ -7,26 +7,15 @@ import (
 	"time"
 
 	"github.com/projectdiscovery/gozero/sandbox"
+	osutils "github.com/projectdiscovery/utils/os"
 )
 
 func main() {
 	ctx := context.Background()
 
-	// Check if Docker is available
-	installed, err := sandbox.IsDockerInstalled(ctx)
-	if err != nil {
-		log.Fatalf("Error checking Docker installation: %v", err)
-	}
-	if !installed {
-		log.Fatal("Docker is not installed")
-	}
-
-	enabled, err := sandbox.IsDockerEnabled(ctx)
-	if err != nil {
-		log.Fatalf("Error checking Docker status: %v", err)
-	}
-	if !enabled {
-		log.Fatal("Docker daemon is not running")
+	if !osutils.IsLinux() {
+		log.Printf("This example is only supported on Linux")
+		return
 	}
 
 	// Create Docker sandbox configuration

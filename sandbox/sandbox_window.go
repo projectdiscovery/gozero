@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
-	"errors"
 	"net"
 	"os"
 	"os/exec"
@@ -66,8 +65,8 @@ type SandboxWindows struct {
 
 // New sandbox with the given configuration
 func New(ctx context.Context, config *Configuration) (Sandbox, error) {
-	if ok, err := IsInstalled(context.Background()); err != nil || !ok {
-		return nil, errors.New("sandbox feature not installed")
+	if ok, err := isInstalled(ctx); err != nil || !ok {
+		return nil, err
 	}
 
 	sharedFolder, err := os.MkdirTemp("", "")

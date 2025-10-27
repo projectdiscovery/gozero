@@ -213,9 +213,9 @@ func (s *SandboxDocker) Run(ctx context.Context, cmd string) (*types.Result, err
 	return s.runCommand(ctx, cmdParts, cmd, false, "")
 }
 
-// RunScript executes a script or source code in the Docker container
+// RunScript executes a script in the Docker container
 func (s *SandboxDocker) RunScript(ctx context.Context, source string) (*types.Result, error) {
-	return nil, ErrNotImplemented
+	return s.RunSource(ctx, source)
 }
 
 // RunSource writes source code to a temporary file inside the container, executes it with proper permissions, and cleans up
@@ -259,34 +259,14 @@ func (s *SandboxDocker) Clear() error {
 	return nil
 }
 
-// isDockerInstalled checks if Docker is installed and available
+// isDockerInstalled checks if Docker is installed and available by executing docker info
 func isDockerInstalled(ctx context.Context) (bool, error) {
-	_, err := exec.LookPath("docker")
+	cmd := exec.CommandContext(ctx, "docker", "info")
+	err := cmd.Run()
 	if err != nil {
 		return false, err
 	}
 	return true, nil
-}
-
-// isDockerEnabled checks if Docker daemon is running
-func isDockerEnabled(ctx context.Context) (bool, error) {
-	cmd := exec.CommandContext(ctx, "docker", "info")
-	err := cmd.Run()
-	return err == nil, err
-}
-
-// activateDocker attempts to start Docker daemon (platform-specific)
-func activateDocker(ctx context.Context) (bool, error) {
-	// This is platform-specific and would need to be implemented
-	// For now, we assume Docker is already running
-	return isDockerEnabled(ctx)
-}
-
-// deactivateDocker attempts to stop Docker daemon (platform-specific)
-func deactivateDocker(ctx context.Context) (bool, error) {
-	// This is platform-specific and would need to be implemented
-	// For now, we don't support stopping Docker daemon
-	return false, fmt.Errorf("docker daemon cannot be stopped programmatically")
 }
 
 // parseMemoryLimit parses memory limit string (e.g., "512m", "1g") to bytes
@@ -336,14 +316,17 @@ func (s *SandboxDocker) pullImageIfNeeded(ctx context.Context, imageName string)
 	}()
 
 	// Read the pull progress to completion
-	_, err = reader.Read(make([]byte, 1024))
-	for err == nil {
-		_, err = reader.Read(make([]byte, 1024))
-	}
-
-	// EOF is expected when pull completes successfully
-	if err != nil && err.Error() != "EOF" {
-		return fmt.Errorf("failed to complete image pull: %w", err)
+	buf := make([]byte, 1024)
+	for {
+		_, readErr := reader.Read(buf)
+		if readErr == nil {
+			continue
+		}
+		// EOF is expected when pull completes successfully
+		if readErr.Error() != "EOF" {
+			return fmt.Errorf("failed to complete image pull: %w", readErr)
+		}
+		break
 	}
 
 	return nil
