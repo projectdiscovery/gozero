@@ -13,7 +13,10 @@ func TestNewSourceWithFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temporary file: %v", err)
 	}
-	defer os.Remove(tempFile.Name()) // clean up
+	defer func() {
+		// clean up
+		_ = os.Remove(tempFile.Name())
+	}()
 
 	content := []byte("temporary file's content")
 	if _, err := tempFile.Write(content); err != nil {

@@ -9,9 +9,14 @@ import (
 	"time"
 
 	"github.com/projectdiscovery/gozero/sandbox"
+	osutil "github.com/projectdiscovery/utils/os"
 )
 
 func main() {
+	if !osutil.IsLinux() {
+		log.Printf("This example is only supported on Linux")
+		return
+	}
 	command := "hostname"
 	rules := []sandbox.Rule{
 		{Filter: sandbox.DynamicUser, Arg: sandbox.Arg{Type: sandbox.Bool, Params: "yes"}},

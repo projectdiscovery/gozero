@@ -9,9 +9,14 @@ import (
 	"time"
 
 	"github.com/projectdiscovery/gozero/sandbox"
+	osutil "github.com/projectdiscovery/utils/os"
 )
 
 func main() {
+	if !osutil.IsWindows() {
+		log.Printf("This example is only supported on Windows")
+		return
+	}
 	commands := []string{
 		"ipconfig",
 	}

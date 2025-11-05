@@ -8,7 +8,7 @@ import (
 	"os/exec"
 
 	"github.com/projectdiscovery/gozero/types"
-	errorutil "github.com/projectdiscovery/utils/errors"
+	"github.com/projectdiscovery/utils/errkit"
 )
 
 // Command is a command to execute.
@@ -74,7 +74,7 @@ func (c *Command) Execute(ctx context.Context) (*types.Result, error) {
 	if err := cmd.Start(); err != nil {
 		// this error indicates that command did not start at all (e.g. binary not found)
 		// or something similar
-		return res, errorutil.NewWithErr(err).Msgf("failed to start command got: %v", res.Stderr.String())
+		return res, errkit.WithMessagef(err, "failed to start command got: %v", res.Stderr.String())
 	}
 
 	if err := cmd.Wait(); err != nil {
@@ -82,7 +82,7 @@ func (c *Command) Execute(ctx context.Context) (*types.Result, error) {
 			res.SetExitError(execErr)
 		}
 		// this error indicates that command started but exited with non-zero exit code
-		return res, errorutil.NewWithErr(err).Msgf("failed to exec command got: %v", res.Stderr.String())
+		return res, errkit.WithMessagef(err, "failed to exec command got: %v", res.Stderr.String())
 	}
 	return res, nil
 }

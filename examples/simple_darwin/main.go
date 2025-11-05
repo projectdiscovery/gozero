@@ -9,9 +9,15 @@ import (
 	"time"
 
 	"github.com/projectdiscovery/gozero/sandbox"
+	osutil "github.com/projectdiscovery/utils/os"
 )
 
 func main() {
+	if !osutil.IsOSX() {
+		log.Printf("This example is only supported on Darwin")
+		return
+	}
+
 	command := "hostname"
 	rules := []sandbox.Rule{
 		{Action: sandbox.Deny, Scope: sandbox.FileWrite},
@@ -33,5 +39,5 @@ func main() {
 	}
 
 	time.Sleep(60 * time.Second)
-	instance.Clear()
+	_ = instance.Clear()
 }

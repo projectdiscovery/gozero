@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
-	"errors"
 	"net"
 	"os"
 	"os/exec"
@@ -66,8 +65,8 @@ type SandboxWindows struct {
 
 // New sandbox with the given configuration
 func New(ctx context.Context, config *Configuration) (Sandbox, error) {
-	if ok, err := IsInstalled(context.Background()); err != nil || !ok {
-		return nil, errors.New("sandbox feature not installed")
+	if ok, err := isInstalled(ctx); err != nil || !ok {
+		return nil, err
 	}
 
 	sharedFolder, err := os.MkdirTemp("", "")
@@ -118,6 +117,16 @@ func New(ctx context.Context, config *Configuration) (Sandbox, error) {
 
 func (s *SandboxWindows) Run(ctx context.Context, cmd string) (*types.Result, error) {
 	return nil, ErrAgentRequired
+}
+
+// RunScript executes a script or source code in the sandbox
+func (s *SandboxWindows) RunScript(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
+// RunSource writes source code to a temporary file, executes it with proper permissions, and cleans up
+func (s *SandboxWindows) RunSource(ctx context.Context, source string, interpreter string) (*types.Result, error) {
+	return nil, ErrNotImplemented
 }
 
 // Start the instance

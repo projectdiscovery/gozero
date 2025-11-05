@@ -68,9 +68,18 @@ type SandboxLinux struct {
 	conf   []string
 }
 
+func isSystemdInstalled(ctx context.Context) (bool, error) {
+	cmd := exec.CommandContext(ctx, "systemd-run", "--help")
+	err := cmd.Run()
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // New sandbox with the given configuration
 func New(ctx context.Context, config *Configuration) (Sandbox, error) {
-	if ok, err := IsInstalled(context.Background()); err != nil || !ok {
+	if ok, err := isSystemdInstalled(context.Background()); err != nil || !ok {
 		return nil, errors.New("sandbox feature not installed")
 	}
 
@@ -112,7 +121,20 @@ func (s *SandboxLinux) Run(ctx context.Context, cmd string) (*types.Result, erro
 	params = append(params, s.conf...)
 	params = append(params, strings.Split(cmd, " ")...)
 	cmdContext, err := cmdexec.NewCommand("systemd-run", params...)
+	if err != nil {
+		return nil, err
+	}
 	return cmdContext.Execute(ctx)
+}
+
+// RunScript executes a script or source code in the sandbox
+func (s *SandboxLinux) RunScript(ctx context.Context, source string) (*types.Result, error) {
+	return nil, ErrNotImplemented
+}
+
+// RunSource writes source code to a temporary file, executes it with proper permissions, and cleans up
+func (s *SandboxLinux) RunSource(ctx context.Context, source string, interpreter string) (*types.Result, error) {
+	return nil, ErrNotImplemented
 }
 
 // Start the instance
@@ -133,24 +155,4 @@ func (s *SandboxLinux) Stop() error {
 // Clear the instance after stop
 func (s *SandboxLinux) Clear() error {
 	return ErrNotImplemented
-}
-
-func isEnabled(ctx context.Context) (bool, error) {
-	return isInstalled(ctx)
-}
-
-func isInstalled(ctx context.Context) (bool, error) {
-	_, err := exec.LookPath("systemd-run")
-	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func activate(ctx context.Context) (bool, error) {
-	return false, errors.New("sandbox is a linux native functionality")
-}
-
-func deactivate(ctx context.Context) (bool, error) {
-	return false, errors.New("can't be disabled")
 }

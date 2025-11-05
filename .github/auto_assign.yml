@@ -1,0 +1,7 @@
+addReviewers: true
+reviewers:
+  - mzack9999
+
+numberOfReviewers: 1
+skipKeywords:
+  - '@dependabot'
