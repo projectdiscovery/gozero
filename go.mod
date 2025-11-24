@@ -6,7 +6,7 @@ toolchain go1.24.1
 
 require (
 	github.com/docker/docker v28.0.0+incompatible
-	github.com/projectdiscovery/utils v0.6.0
+	github.com/projectdiscovery/utils v0.7.1
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -44,8 +44,8 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.8.0 // indirect
 	golang.org/x/exp v0.0.0-20250106191152-7588d65b2ba8 // indirect
-	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	google.golang.org/grpc v1.76.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
