@@ -6,7 +6,7 @@ toolchain go1.24.1
 
 require (
 	github.com/docker/docker v28.0.0+incompatible
-	github.com/projectdiscovery/utils v0.7.1
+	github.com/projectdiscovery/utils v0.7.3
 	github.com/stretchr/testify v1.11.1
 )
 
