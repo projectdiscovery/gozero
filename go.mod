@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/docker/docker v28.0.0+incompatible
-	github.com/projectdiscovery/utils v0.10.0
+	github.com/projectdiscovery/utils v0.10.1
 	github.com/stretchr/testify v1.11.1
 )
 
