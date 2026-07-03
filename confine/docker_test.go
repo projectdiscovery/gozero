@@ -1,8 +1,6 @@
 package confine
 
 import (
-	"archive/tar"
-	"io"
 	"testing"
 
 	"github.com/moby/moby/api/types/container"
@@ -50,57 +48,6 @@ func TestDockerContainerConfigStdinGating(t *testing.T) {
 	assert.True(t, withStdin.AttachStdin)
 	assert.True(t, withStdin.StdinOnce)
 	assert.Equal(t, "1000:1000", withStdin.User)
-}
-
-// tarSingleFile is the heredoc-free source-injection primitive: verify the
-// archive round-trips exactly, with the requested name and mode.
-func TestTarSingleFileRoundTrip(t *testing.T) {
-	// Content deliberately contains a bare "EOF" line and shell metacharacters
-	// that would break a heredoc/shell-interpolation approach.
-	content := []byte("print('hi')\nEOF\n$(rm -rf /)\n`id`\n")
-	r, err := tarSingleFile("script.py", content, 0o755)
-	require.NoError(t, err)
-
-	tr := tar.NewReader(r)
-	hdr, err := tr.Next()
-	require.NoError(t, err)
-	assert.Equal(t, "script.py", hdr.Name)
-	assert.Equal(t, int64(0o755), hdr.Mode)
-	assert.Equal(t, int64(len(content)), hdr.Size)
-
-	got, err := io.ReadAll(tr)
-	require.NoError(t, err)
-	assert.Equal(t, content, got, "source must round-trip byte-for-byte")
-
-	_, err = tr.Next()
-	assert.ErrorIs(t, err, io.EOF, "archive must contain exactly one file")
-}
-
-// tarSourceTree must carry the containing directory so extraction at "/" creates
-// it; CopyToContainer requires the destination directory to pre-exist.
-func TestTarSourceTreeIncludesDir(t *testing.T) {
-	content := []byte("echo hi\n")
-	r, err := tarSourceTree("gozero-src", "script.sh", content, 0o755)
-	require.NoError(t, err)
-
-	tr := tar.NewReader(r)
-
-	dir, err := tr.Next()
-	require.NoError(t, err)
-	assert.Equal(t, "gozero-src/", dir.Name)
-	assert.Equal(t, byte(tar.TypeDir), dir.Typeflag)
-
-	file, err := tr.Next()
-	require.NoError(t, err)
-	assert.Equal(t, "gozero-src/script.sh", file.Name)
-	assert.Equal(t, int64(0o755), file.Mode)
-
-	got, err := io.ReadAll(tr)
-	require.NoError(t, err)
-	assert.Equal(t, content, got, "source must round-trip byte-for-byte")
-
-	_, err = tr.Next()
-	assert.ErrorIs(t, err, io.EOF, "archive must contain exactly the dir and file")
 }
 
 func TestRemapScript(t *testing.T) {

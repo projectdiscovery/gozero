@@ -1,11 +1,11 @@
 package confine
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 	"github.com/projectdiscovery/gozero/types"
 )
@@ -106,6 +107,30 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 	cfg := dockerContainerConfig(c.image, cmd, containerWorkDir, envMapToSlice(env), user, wantStdin)
 	hostCfg := dockerHostConfig(c.policy)
 
+	// Expose the source through a private read-only bind mount, never as shell
+	// text. CopyToContainer cannot reliably inject into a container whose rootfs
+	// is configured read-only, and relaxing ReadonlyRootfs for injection weakens
+	// the runtime posture. A bind of one temp dir keeps the rootfs read-only and
+	// gives the payload access to only this generated source file.
+	srcData := spec.ScriptData
+	if srcData == nil {
+		srcData = []byte{}
+	}
+	sourceDir, err := os.MkdirTemp("", "gozero-docker-src-*")
+	if err != nil {
+		return nil, fmt.Errorf("confine: create source dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(sourceDir) }()
+	if err := os.WriteFile(filepath.Join(sourceDir, scriptName), srcData, 0o700); err != nil {
+		return nil, fmt.Errorf("confine: write source: %w", err)
+	}
+	hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
+		Type:     mount.TypeBind,
+		Source:   sourceDir,
+		Target:   containerSourceDir,
+		ReadOnly: true,
+	})
+
 	createResp, err := c.cli.ContainerCreate(ctx, client.ContainerCreateOptions{Config: cfg, HostConfig: hostCfg})
 	if err != nil {
 		return nil, fmt.Errorf("confine: create container: %w", err)
@@ -116,28 +141,6 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 		defer rmCancel()
 		_, _ = c.cli.ContainerRemove(rmCtx, id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
 	}()
-
-	// Inject the source as a tar archive, never as shell text: there is no
-	// heredoc/quoting to break out of, and the declared interpreter is the only
-	// thing that runs it.
-	srcData := spec.ScriptData
-	if srcData == nil {
-		srcData = []byte{}
-	}
-	// Extract at "/" with the source directory carried inside the archive:
-	// CopyToContainer requires the destination path to already exist, and
-	// containerSourceDir does not exist in an arbitrary base image. Shipping the
-	// directory entry in the tar creates it during extraction.
-	archive, err := tarSourceTree(strings.TrimPrefix(containerSourceDir, "/"), scriptName, srcData, 0o755)
-	if err != nil {
-		return nil, fmt.Errorf("confine: build source archive: %w", err)
-	}
-	if _, err := c.cli.CopyToContainer(ctx, id, client.CopyToContainerOptions{
-		DestinationPath: "/",
-		Content:         archive,
-	}); err != nil {
-		return nil, fmt.Errorf("confine: copy source into container: %w", err)
-	}
 
 	// Attach stdin (only) before start so the payload can read it. stdout/stderr
 	// are collected from the logs stream after exit, demultiplexed via stdcopy.
@@ -298,58 +301,4 @@ func dockerHostConfig(p Policy) *container.HostConfig {
 		hc.NanoCPUs = p.NanoCPUs
 	}
 	return hc
-}
-
-// tarSingleFile builds an in-memory tar archive containing exactly one regular
-// file (name, content, mode). Used to inject the source via the container
-// archive API rather than a shell heredoc.
-func tarSingleFile(name string, data []byte, mode int64) (io.Reader, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	if err := writeTarFile(tw, name, data, mode); err != nil {
-		return nil, err
-	}
-	if err := tw.Close(); err != nil {
-		return nil, err
-	}
-	return &buf, nil
-}
-
-// tarSourceTree builds an archive containing dir/ (a directory entry) and
-// dir/name (the source file). Extracting it at "/" creates the directory even
-// when it is absent from the base image, which CopyToContainer cannot do on its
-// own (it requires the destination path to already exist).
-func tarSourceTree(dir, name string, data []byte, mode int64) (io.Reader, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	dirHdr := &tar.Header{
-		Name:     dir + "/",
-		Mode:     0o755,
-		Typeflag: tar.TypeDir,
-	}
-	if err := tw.WriteHeader(dirHdr); err != nil {
-		return nil, err
-	}
-	if err := writeTarFile(tw, path.Join(dir, name), data, mode); err != nil {
-		return nil, err
-	}
-	if err := tw.Close(); err != nil {
-		return nil, err
-	}
-	return &buf, nil
-}
-
-func writeTarFile(tw *tar.Writer, name string, data []byte, mode int64) error {
-	hdr := &tar.Header{
-		Name: name,
-		Mode: mode,
-		Size: int64(len(data)),
-	}
-	if err := tw.WriteHeader(hdr); err != nil {
-		return err
-	}
-	if _, err := tw.Write(data); err != nil {
-		return err
-	}
-	return nil
 }
