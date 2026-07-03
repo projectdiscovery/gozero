@@ -124,12 +124,16 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 	if srcData == nil {
 		srcData = []byte{}
 	}
-	archive, err := tarSingleFile(scriptName, srcData, 0o755)
+	// Extract at "/" with the source directory carried inside the archive:
+	// CopyToContainer requires the destination path to already exist, and
+	// containerSourceDir does not exist in an arbitrary base image. Shipping the
+	// directory entry in the tar creates it during extraction.
+	archive, err := tarSourceTree(strings.TrimPrefix(containerSourceDir, "/"), scriptName, srcData, 0o755)
 	if err != nil {
 		return nil, fmt.Errorf("confine: build source archive: %w", err)
 	}
 	if _, err := c.cli.CopyToContainer(ctx, id, client.CopyToContainerOptions{
-		DestinationPath: containerSourceDir,
+		DestinationPath: "/",
 		Content:         archive,
 	}); err != nil {
 		return nil, fmt.Errorf("confine: copy source into container: %w", err)
@@ -146,7 +150,11 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 		defer attach.Close()
 	}
 
-	waitRes := c.cli.ContainerWait(ctx, id, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	// Register the wait BEFORE start using NextExit: WaitConditionNotRunning is
+	// satisfied immediately by a freshly created (not-yet-started) container and
+	// returns a bogus StatusCode 0, so it must not be used in the wait-then-start
+	// ordering. NextExit resolves only when the container next exits.
+	waitRes := c.cli.ContainerWait(ctx, id, client.ContainerWaitOptions{Condition: container.WaitConditionNextExit})
 
 	if _, err := c.cli.ContainerStart(ctx, id, client.ContainerStartOptions{}); err != nil {
 		return nil, fmt.Errorf("confine: start container: %w", err)
@@ -298,19 +306,50 @@ func dockerHostConfig(p Policy) *container.HostConfig {
 func tarSingleFile(name string, data []byte, mode int64) (io.Reader, error) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	hdr := &tar.Header{
-		Name: name,
-		Mode: mode,
-		Size: int64(len(data)),
-	}
-	if err := tw.WriteHeader(hdr); err != nil {
-		return nil, err
-	}
-	if _, err := tw.Write(data); err != nil {
+	if err := writeTarFile(tw, name, data, mode); err != nil {
 		return nil, err
 	}
 	if err := tw.Close(); err != nil {
 		return nil, err
 	}
 	return &buf, nil
+}
+
+// tarSourceTree builds an archive containing dir/ (a directory entry) and
+// dir/name (the source file). Extracting it at "/" creates the directory even
+// when it is absent from the base image, which CopyToContainer cannot do on its
+// own (it requires the destination path to already exist).
+func tarSourceTree(dir, name string, data []byte, mode int64) (io.Reader, error) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	dirHdr := &tar.Header{
+		Name:     dir + "/",
+		Mode:     0o755,
+		Typeflag: tar.TypeDir,
+	}
+	if err := tw.WriteHeader(dirHdr); err != nil {
+		return nil, err
+	}
+	if err := writeTarFile(tw, path.Join(dir, name), data, mode); err != nil {
+		return nil, err
+	}
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	return &buf, nil
+}
+
+func writeTarFile(tw *tar.Writer, name string, data []byte, mode int64) error {
+	hdr := &tar.Header{
+		Name: name,
+		Mode: mode,
+		Size: int64(len(data)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	if _, err := tw.Write(data); err != nil {
+		return err
+	}
+	return nil
 }

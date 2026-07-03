@@ -6,10 +6,16 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/projectdiscovery/gozero/types"
 	"github.com/projectdiscovery/utils/errkit"
 )
+
+// killGrace bounds how long cmd.Wait may block on inherited I/O pipes after the
+// context is cancelled and the process group has been signalled. It is a
+// backstop: normally the process-group kill closes the pipes immediately.
+const killGrace = 5 * time.Second
 
 // runHost executes a fully-formed argv with an explicit, scrubbed environment
 // and captures the result. It is the shared execution primitive for the native
@@ -26,6 +32,10 @@ func runHost(ctx context.Context, argv, env []string, stdin io.Reader, dir strin
 	}
 
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// On cancellation, kill the whole process group (launcher + interpreter +
+	// its children) and bound how long Wait may block on inherited pipes.
+	configureProcessGroup(cmd)
+	cmd.WaitDelay = killGrace
 	// Force an explicit environment. A nil slice would inherit the parent's, so
 	// we always assign — even when empty — to guarantee a clean environment.
 	if env == nil {

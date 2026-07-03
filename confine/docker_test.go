@@ -76,6 +76,33 @@ func TestTarSingleFileRoundTrip(t *testing.T) {
 	assert.ErrorIs(t, err, io.EOF, "archive must contain exactly one file")
 }
 
+// tarSourceTree must carry the containing directory so extraction at "/" creates
+// it; CopyToContainer requires the destination directory to pre-exist.
+func TestTarSourceTreeIncludesDir(t *testing.T) {
+	content := []byte("echo hi\n")
+	r, err := tarSourceTree("gozero-src", "script.sh", content, 0o755)
+	require.NoError(t, err)
+
+	tr := tar.NewReader(r)
+
+	dir, err := tr.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "gozero-src/", dir.Name)
+	assert.Equal(t, byte(tar.TypeDir), dir.Typeflag)
+
+	file, err := tr.Next()
+	require.NoError(t, err)
+	assert.Equal(t, "gozero-src/script.sh", file.Name)
+	assert.Equal(t, int64(0o755), file.Mode)
+
+	got, err := io.ReadAll(tr)
+	require.NoError(t, err)
+	assert.Equal(t, content, got, "source must round-trip byte-for-byte")
+
+	_, err = tr.Next()
+	assert.ErrorIs(t, err, io.EOF, "archive must contain exactly the dir and file")
+}
+
 func TestRemapScript(t *testing.T) {
 	argv := []string{"/usr/bin/python3", "/host/tmp/abc.py", "--flag", "value"}
 	got := remapScript(argv, "/host/tmp/abc.py", "/gozero-src/abc.py", "python3", true)
