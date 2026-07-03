@@ -40,6 +40,20 @@ func TestNormalizedFillsSparsePolicy(t *testing.T) {
 	assert.Equal(t, -1, got.RunAsGID)
 }
 
+// TestNewNilPolicyDoesNotPanic guards the regression where New(nil) used
+// DefaultPolicy() without normalizing it, leaving Logger nil and panicking in
+// the backend probe. It must return cleanly (a confiner or a fail-closed error).
+func TestNewNilPolicyDoesNotPanic(t *testing.T) {
+	c, err := New(nil)
+	if err != nil {
+		assert.ErrorIs(t, err, ErrConfinementUnavailable)
+		assert.Nil(t, c)
+		return
+	}
+	require.NotNil(t, c)
+	_ = c.Close()
+}
+
 func TestNewUnsupportedBackendFailsClosed(t *testing.T) {
 	c, err := New(&Policy{Backend: Backend("nonsense")})
 	assert.Nil(t, c)

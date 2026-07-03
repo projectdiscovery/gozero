@@ -260,12 +260,14 @@ type Confiner interface {
 // unavailable mechanism returns ErrConfinementUnavailable rather than a
 // permissive fallback — callers MUST treat that as "do not execute".
 func New(policy *Policy) (Confiner, error) {
-	var p Policy
 	if policy == nil {
-		p = DefaultPolicy()
-	} else {
-		p = policy.normalized()
+		d := DefaultPolicy()
+		policy = &d
 	}
+	// normalized() fills unset fields (including Logger) so the backend probes
+	// below can rely on them; skipping it caused a nil-logger panic on the
+	// nil-policy path.
+	p := policy.normalized()
 
 	switch p.Backend {
 	case BackendHost:
