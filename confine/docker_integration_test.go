@@ -6,18 +6,38 @@ import (
 	"testing"
 	"time"
 
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // dockerOrSkip returns a Docker confiner or skips the test. It only runs where a
 // reachable daemon exists (fail-closed New returns an error otherwise), so CI
-// hosts without Docker skip cleanly instead of failing.
+// hosts without Docker skip cleanly instead of failing. The daemon must also be
+// a Linux-container daemon: the confiner uses Linux container semantics (bind
+// paths like /gozero-src, tmpfs, --network none), which a Windows-container
+// daemon (e.g. the windows-latest runner) rejects, so those hosts skip too.
 func dockerOrSkip(t *testing.T) Confiner {
 	t.Helper()
 	c, err := New(&Policy{Backend: BackendDocker})
 	if err != nil {
 		t.Skipf("docker confinement unavailable on this host: %v", err)
+	}
+	dc, ok := c.(*dockerConfiner)
+	if !ok {
+		_ = c.Close()
+		t.Skipf("unexpected confiner type %T", c)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ver, err := dc.cli.ServerVersion(ctx, client.ServerVersionOptions{})
+	if err != nil {
+		_ = c.Close()
+		t.Skipf("docker daemon version unavailable: %v", err)
+	}
+	if ver.Os != "linux" {
+		_ = c.Close()
+		t.Skipf("docker daemon is a %q-container daemon; confine targets linux containers", ver.Os)
 	}
 	return c
 }
