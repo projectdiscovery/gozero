@@ -121,7 +121,15 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 		return nil, fmt.Errorf("confine: create source dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(sourceDir) }()
-	if err := os.WriteFile(filepath.Join(sourceDir, scriptName), srcData, 0o700); err != nil {
+	// World-traversable dir and world-readable+executable script: the container
+	// may run under a forced non-root uid (policy.RunAsUID) that differs from the
+	// host uid that owns these files, and MkdirTemp/WriteFile would otherwise
+	// create 0700/0600 files only the host owner can reach. The bind is mounted
+	// read-only, so widening the mode does not let the payload tamper with them.
+	if err := os.Chmod(sourceDir, 0o755); err != nil {
+		return nil, fmt.Errorf("confine: chmod source dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, scriptName), srcData, 0o555); err != nil {
 		return nil, fmt.Errorf("confine: write source: %w", err)
 	}
 	hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
@@ -275,9 +283,12 @@ func dockerHostConfig(p Policy) *container.HostConfig {
 		CgroupnsMode:   container.CgroupnsModePrivate,
 		IpcMode:        container.IPCModePrivate,
 		Privileged:     false,
+		// mode=1777 (sticky, world-writable) so a forced non-root uid can still
+		// write scratch; nosuid/nodev keep the tmpfs from carrying setuid/device
+		// escalation primitives.
 		Tmpfs: map[string]string{
-			containerWorkDir: "rw,nosuid,nodev,size=64m",
-			"/tmp":           "rw,nosuid,nodev,size=64m",
+			containerWorkDir: "rw,nosuid,nodev,size=64m,mode=1777",
+			"/tmp":           "rw,nosuid,nodev,size=64m,mode=1777",
 		},
 	}
 
