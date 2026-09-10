@@ -4,19 +4,28 @@ gozero: the wannabe zero dependency [language-here] runtime for Go developers
 
 ## Isolation
 
-### Windows
+Confinement is provided by the `confine` package. It is deny-by-default (no
+network, dropped capabilities, no-new-privileges, read-only root filesystem,
+private namespaces, cpu/memory/pids limits, minimal environment) and fail
+closed: when confinement is requested but the backend is unavailable, execution
+is refused instead of falling back to the host.
 
-Native isolation on windows is supported only with the PRO version and is implemented via Windows Sandbox (which needs to be [activated](https://www.makeuseof.com/enable-set-up-windows-sandbox-windows-11/)).
+Backends:
 
-### Darwin
+- Linux: bubblewrap (`bwrap`).
+- macOS: Seatbelt (`sandbox-exec`).
+- Any OS with a Docker daemon: a hardened, single-shot container.
 
-OSX implements native isolation via the command `sandbox-exec`. The command line interface is marked as deprecated, but the system functionality is actively supported, and profiles are still used in well-known software like chrome, firefox.
+Source is passed to the interpreter as bytes, never interpolated into a shell.
 
-### Linux
+## Usage
 
-On Linux, the functionality is implemented with the default command `systemd-run`, which should be available on most systems and allow a vast fine-grained sandbox configuration via SecComp and EBPF
+Confinement is off by default. Enable it per executor:
 
+```go
+opts := &gozero.Options{Engines: []string{"python3"}, Sandbox: true}
+g, err := gozero.New(opts) // fails closed if no backend is available
+```
 
-## Note:
-
-Sandbox is not enabled by default and needs to be used manually through sdk
+Tune the posture with `Options.Confinement` (a `*confine.Policy`), or pick a
+backend per call with `Gozero.EvalWithVirtualEnv`.
