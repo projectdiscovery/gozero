@@ -175,3 +175,18 @@ func TestHiddenRootsDropsNested(t *testing.T) {
 		}
 	}
 }
+
+// The script usually sits directly in the host temp dir, next to the
+// workspace. Only the script file may be bound, and before the workspace, so
+// the host temp dir stays hidden and the workspace stays writable.
+func TestBwrapArgsBindsOnlyTheScript(t *testing.T) {
+	dir := canonicalPath(t.TempDir())
+	ws := filepath.Join(dir, "ws")
+	script := filepath.Join(dir, "script.sh")
+	got := bwrapArgs("bwrap", DefaultPolicy(), ws, script, nil, []string{"sh", script})
+
+	assert.False(t, containsSeq(got, []string{"--ro-bind-try", dir, dir}), "the script dir must not be bound")
+	scriptIdx := indexOfSeq(got, []string{"--ro-bind-try", script, script})
+	require.NotEqual(t, -1, scriptIdx, "the script file must be bound read-only")
+	assert.Less(t, scriptIdx, indexOfSeq(got, []string{"--bind", ws, ws}), "the workspace bind must come last")
+}

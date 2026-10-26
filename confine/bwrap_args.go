@@ -19,10 +19,9 @@ import (
 //     variables are re-added with --setenv, so ambient secrets never leak in.
 //   - The host root is bind-mounted READ-ONLY so the interpreter and its shared
 //     libraries are reachable, then fresh /proc, /dev and a tmpfs /tmp are laid
-//     on top. Exactly one path — the workspace — is bound writable. The script's
-//     directory is bound read-only (it is normally already covered by the ro
-//     root, but binding it explicitly keeps the payload readable even if the
-//     script lives on a filesystem the root bind didn't capture).
+//     on top. Exactly one path — the workspace — is bound writable. The script
+//     file alone is bound read-only (its directory is usually the host temp
+//     dir, which must stay hidden behind the private /tmp).
 //   - $HOME, the other users' homes, root's home and /run (runtime sockets
 //     such as the Docker socket) are replaced by empty tmpfs mounts, then only
 //     the paths in the policy's ReadOnlyPaths allow list are bound back
@@ -67,7 +66,7 @@ func bwrapArgs(bin string, p Policy, workspace, scriptPath string, env map[strin
 	// behind empty tmpfs mounts, so the payload can't read ~/.ssh, shell
 	// history or credentials, or drive a daemon. The explicit allow list
 	// (policy ReadOnlyPaths) is bound back read-only on top. Binds below
-	// (workspace, temp, script dir) come later, so they still win when they
+	// (script, workspace, temp) come later, so they still win when they
 	// live in a hidden dir.
 	if roots := hiddenRoots(); len(roots) > 0 {
 		for _, root := range roots {
@@ -83,19 +82,23 @@ func bwrapArgs(bin string, p Policy, workspace, scriptPath string, env map[strin
 		}
 	}
 
+	// Bind only the script file read-only, never its directory: the script
+	// usually sits in the host temp dir, and binding that directory would put
+	// the whole host /tmp back over the private tmpfs (and, coming after the
+	// workspace bind, would make a workspace inside it read-only). It comes
+	// before the writable binds so those always win.
+	if scriptPath != "" {
+		if sp := canonicalPath(scriptPath); sp != "" && !underDir(sp, ws) {
+			out = append(out, "--ro-bind-try", sp, sp)
+		}
+	}
+
 	// Single writable path: the workspace.
 	if ws != "" {
 		out = append(out, "--bind", ws, ws)
 	}
 	if t := canonicalPath(p.Tmp); t != "" && t != ws {
 		out = append(out, "--bind", t, t)
-	}
-	// Ensure the script's directory is readable even if it sits outside the
-	// root bind (idempotent when already covered).
-	if scriptPath != "" {
-		if dir := canonicalPath(filepath.Dir(scriptPath)); dir != "" && dir != "/" && dir != ws {
-			out = append(out, "--ro-bind-try", dir, dir)
-		}
 	}
 
 	// Non-root identity inside the user namespace.
