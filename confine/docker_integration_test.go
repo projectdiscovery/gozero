@@ -70,7 +70,8 @@ func TestDockerConfinedPropagatesExitCode(t *testing.T) {
 	ctx, cancel := dockerCtx(t)
 	defer cancel()
 
-	res, _ := c.Run(ctx, Spec{Command: []string{"/bin/sh", p}, ScriptPath: p, ScriptData: data})
+	res, err := c.Run(ctx, Spec{Command: []string{"/bin/sh", p}, ScriptPath: p, ScriptData: data})
+	require.Error(t, err, "a non-zero exit must be an error, as on the native confiners")
 	require.NotNil(t, res)
 	assert.Equal(t, 5, res.GetExitCode())
 }

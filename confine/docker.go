@@ -197,6 +197,11 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 		return res, err
 	}
 	res.SetExitCode(int(status))
+	// A non-zero exit is an error, as it is for the native confiners and for
+	// unconfined execution.
+	if status != 0 {
+		return res, fmt.Errorf("confine: confined command failed with exit status %d got: %v", status, res.Stderr.String())
+	}
 	return res, nil
 }
 
