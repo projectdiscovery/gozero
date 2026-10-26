@@ -72,14 +72,16 @@ func systemHiddenDirs() []string {
 }
 
 // hiddenRoots returns the canonical, existing directories hidden from the
-// payload: the user's home plus systemHiddenDirs. Duplicates and directories
-// inside another hidden one are dropped, and "/" is never hidden. The result
-// is ordered shortest first, so a parent is always handled before a child.
-func hiddenRoots() []string {
+// payload: the user's home plus systemHiddenDirs, plus any extra candidates
+// the caller adds. Duplicates and directories inside another hidden one are
+// dropped, and "/" is never hidden. The result is ordered shortest first, so
+// a parent is always handled before a child.
+func hiddenRoots(extra ...string) []string {
 	candidates := systemHiddenDirs()
 	if home := hiddenHome(); home != "" {
 		candidates = append(candidates, home)
 	}
+	candidates = append(candidates, extra...)
 	var dirs []string
 	for _, c := range candidates {
 		resolved, err := filepath.EvalSymlinks(c)

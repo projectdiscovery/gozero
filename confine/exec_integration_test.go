@@ -297,3 +297,41 @@ func TestConfinedHidesSystemDirs(t *testing.T) {
 		assert.Contains(t, res.Stdout.String(), root+"=0\n", "%s must look empty inside the sandbox", root)
 	}
 }
+
+// TestConfinedHidesUserTemp is the temp dir escape assertion: the per-user
+// temp dir holds other runs' files (such as a scan's browser profiles and
+// dedupe db), so a payload must not read a file there outside its own
+// workspace or next to its script, nor list other runs' dirs in the temp
+// dir. Its own workspace must stay writable.
+func TestConfinedHidesUserTemp(t *testing.T) {
+	c := nativeOrSkip(t)
+	defer func() { _ = c.Close() }()
+
+	other := t.TempDir()
+	canary := filepath.Join(other, "canary")
+	require.NoError(t, os.WriteFile(canary, []byte("TEMPSECRET"), 0o600))
+
+	p, data := writeScript(t, "cat \"$CANARY\" 2>/dev/null || echo NO_CANARY\n"+
+		"cat \"$SIBLING\" 2>/dev/null || echo NO_SIBLING\n"+
+		"echo \"SEEN=$(ls -A \"$TMPROOT\" 2>/dev/null | grep -c \"$OTHER\")\"\n"+
+		"echo w > ws-file && cat ws-file\n")
+	sibling := filepath.Join(filepath.Dir(p), "sibling")
+	require.NoError(t, os.WriteFile(sibling, []byte("SIBLINGSECRET"), 0o600))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	res, err := c.Run(ctx, Spec{Command: []string{"/bin/sh", p}, ScriptPath: p, ScriptData: data, Env: map[string]string{
+		"CANARY":  canonicalPath(canary),
+		"SIBLING": canonicalPath(sibling),
+		"TMPROOT": canonicalPath(os.TempDir()),
+		"OTHER":   filepath.Base(filepath.Dir(other)),
+	}})
+	require.NoError(t, err)
+	out := res.Stdout.String()
+	assert.Contains(t, out, "NO_CANARY", "a file in the temp dir outside the workspace must be unreadable")
+	assert.NotContains(t, out, "TEMPSECRET")
+	assert.Contains(t, out, "NO_SIBLING", "only the script file is readable, not its dir")
+	assert.NotContains(t, out, "SIBLINGSECRET")
+	assert.Contains(t, out, "SEEN=0\n", "other runs' dirs in the temp dir must not be listable")
+	assert.Contains(t, out, "w\n", "the workspace must stay writable")
+}

@@ -1,12 +1,14 @@
 package confine
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSeatbeltProfileConfinesWrites(t *testing.T) {
@@ -50,14 +52,19 @@ func TestSeatbeltProfileHidesHome(t *testing.T) {
 	p := Policy{ReadOnlyPaths: []string{"~/.pyenv", "/opt/homebrew"}}
 	profile := seatbeltProfile(p, ws, filepath.Join(ch, "src", "s.py"))
 
-	deny := "(deny file-read* (subpath " + sbplString(ch) + ") (with no-report))"
+	// The test home sits in the temp dir, which is hidden too; the deny then
+	// names the outermost hidden dir that holds the home.
+	root := containingRoot(hiddenRoots(userTempDirs()...), ch)
+	require.NotEmpty(t, root, "home must be inside a hidden root")
+	deny := "(deny file-read* (subpath " + sbplString(root) + ") (with no-report))"
 	assert.Contains(t, profile, deny, "home reads must be denied")
 	allowIdx := strings.Index(profile, "(allow file-read*")
 	assert.Greater(t, allowIdx, strings.Index(profile, deny), "re-allow must follow the deny")
 	allow := profile[allowIdx:]
 	assert.Contains(t, allow, "(subpath "+sbplString(filepath.Join(ch, ".pyenv"))+")", "allow-listed path is readable")
 	assert.Contains(t, allow, "(subpath "+sbplString(ws)+")", "workspace under home is readable")
-	assert.Contains(t, allow, "(subpath "+sbplString(filepath.Join(ch, "src"))+")", "script dir under home is readable")
+	assert.Contains(t, allow, "(literal "+sbplString(filepath.Join(ch, "src", "s.py"))+")", "script file under home is readable")
+	assert.NotContains(t, allow, "(subpath "+sbplString(filepath.Join(ch, "src"))+")", "script dir under home stays hidden")
 	assert.NotContains(t, profile, "/opt/homebrew", "paths outside home are not hidden and need no rule")
 	// Parents of a re-allowed path keep metadata access only.
 	assert.Contains(t, profile, "(literal "+sbplString(filepath.Join(ch, "work"))+")")
@@ -72,4 +79,30 @@ func TestSeatbeltProfileHidesSystemDirs(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		assert.Contains(t, profile, `(subpath "/Users")`, "other users' homes must be hidden")
 	}
+}
+
+// The per-user temp dir holds other runs' files (other scans' work dirs,
+// other payloads' scripts), so it is hidden. Only the run's own workspace and
+// script file come back, plus the xcrun cache the /usr/bin shims need.
+func TestSeatbeltProfileHidesUserTemp(t *testing.T) {
+	tmp := canonicalPath(os.TempDir())
+	ws := canonicalPath(t.TempDir())
+	scriptDir := canonicalPath(t.TempDir())
+	script := filepath.Join(scriptDir, "s.sh")
+	require.NoError(t, os.WriteFile(script, []byte("true\n"), 0o600))
+
+	profile := seatbeltProfile(Policy{}, ws, script)
+
+	root := containingRoot(hiddenRoots(userTempDirs()...), tmp)
+	require.NotEmpty(t, root, "the temp dir must be inside a hidden root")
+	deny := "(deny file-read* (subpath " + sbplString(root) + ") (with no-report))"
+	assert.Contains(t, profile, deny, "temp dir reads must be denied")
+	allowIdx := strings.Index(profile, "(allow file-read*")
+	assert.Greater(t, allowIdx, strings.Index(profile, deny), "re-allow must follow the deny")
+	allow := profile[allowIdx:strings.Index(profile, "(deny file-write*")]
+	assert.Contains(t, allow, "(subpath "+sbplString(ws)+")", "workspace is readable")
+	assert.Contains(t, allow, "(literal "+sbplString(script)+")", "script file is readable")
+	assert.NotContains(t, allow, sbplString(scriptDir)+")", "script dir stays hidden")
+	assert.NotContains(t, allow, "(subpath "+sbplString(tmp)+")", "temp dir stays hidden")
+	assert.Contains(t, allow, "(regex "+xcrunDBRegex+")", "xcrun cache is readable")
 }
