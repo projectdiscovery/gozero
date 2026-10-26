@@ -2,6 +2,7 @@ package confine
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -149,3 +150,28 @@ func lastIndexOf(s []string, v string) int {
 
 // ensure the joined form is shell-inspectable (used in a couple of assertions).
 var _ = strings.Join
+
+func TestBwrapArgsHidesSystemDirs(t *testing.T) {
+	p := DefaultPolicy()
+	got := bwrapArgs("bwrap", p, t.TempDir(), "", nil, []string{"sh"})
+	for _, root := range hiddenRoots() {
+		assert.True(t, containsSeq(got, []string{"--tmpfs", root}), "%s must be covered by a tmpfs", root)
+	}
+	if runtime.GOOS == "linux" {
+		if run, err := filepath.EvalSymlinks("/run"); err == nil {
+			assert.True(t, containsSeq(got, []string{"--tmpfs", run}), "runtime sockets (Docker) must be hidden")
+		}
+	}
+}
+
+func TestHiddenRootsDropsNested(t *testing.T) {
+	roots := hiddenRoots()
+	for i, a := range roots {
+		assert.NotEqual(t, string(filepath.Separator), a)
+		for j, b := range roots {
+			if i != j {
+				assert.False(t, underDir(b, a), "%s is nested in %s", b, a)
+			}
+		}
+	}
+}

@@ -37,6 +37,10 @@ Every security switch in `confine.Policy` is an opt-out whose zero value is the 
 
 The native backends hide `$HOME` from the payload. Seatbelt denies reads under it, and bubblewrap mounts an empty tmpfs over it. The payload cannot read `~/.ssh`, shell history or credentials. The workspace and the script directory stay reachable.
 
+The native backends also hide the other users' homes and root's home (`/home` and `/root` on Linux, `/Users` and `/var/root` on macOS). On Linux they hide `/run` too: it holds daemon sockets such as the Docker socket, and an unshared network namespace does not block unix sockets. On macOS, the network deny blocks unix sockets.
+
+Each native backend runs a probe once before use. If bubblewrap cannot create its namespaces (for example in an unprivileged container, or under Landlock, which forbids mounts), or if `sandbox-exec` cannot apply a profile, `New` returns `ErrConfinementUnavailable`.
+
 If the interpreter lives under `$HOME` (pyenv, nvm, a Homebrew prefix in the home directory), list it in `ReadOnlyPaths`. Each entry is exposed read-only. A leading `~` is expanded. Paths outside `$HOME` are already readable and need no entry.
 
 ```go

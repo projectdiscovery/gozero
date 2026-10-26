@@ -4,8 +4,10 @@ package confine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 
 	"github.com/projectdiscovery/gozero/types"
 )
@@ -18,7 +20,33 @@ func newNativeConfiner(p Policy) Confiner {
 		p.Logger.Debug("confine: seatbelt unavailable", "reason", "sandbox-exec not found on PATH")
 		return nil
 	}
+	if err := probeSeatbelt(bin); err != nil {
+		p.Logger.Debug("confine: seatbelt unavailable", "reason", "probe failed", "error", err)
+		return nil
+	}
 	return &seatbeltConfiner{bin: bin, policy: p}
+}
+
+// seatbeltProbes caches one probe result per sandbox-exec binary.
+var seatbeltProbes sync.Map
+
+// probeSeatbelt checks that sandbox-exec can apply a profile here: it fails,
+// for example, when the process already runs inside another sandbox.
+func probeSeatbelt(bin string) error {
+	if v, ok := seatbeltProbes.Load(bin); ok {
+		if v == nil {
+			return nil
+		}
+		return v.(error)
+	}
+	out, err := exec.Command(bin, "-p", "(version 1)(allow default)", "/usr/bin/true").CombinedOutput()
+	if err != nil {
+		err = fmt.Errorf("%w: %s", err, out)
+		seatbeltProbes.Store(bin, err)
+		return err
+	}
+	seatbeltProbes.Store(bin, nil)
+	return nil
 }
 
 var _ Confiner = (*seatbeltConfiner)(nil)

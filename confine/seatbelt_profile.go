@@ -10,8 +10,9 @@ import (
 //
 // Posture: (allow default) opens the world, then file *writes* are denied
 // everywhere and re-allowed only under the workspace, the temp dir and a few
-// harmless /dev nodes; reads of $HOME are denied except for the workspace,
-// temp dir, script dir and the policy's ReadOnlyPaths allow list; optionally
+// harmless /dev nodes; reads of $HOME, the other users' homes and root's home
+// are denied except for the workspace, temp dir, script dir and the policy's
+// ReadOnlyPaths allow list; optionally
 // all network is denied. This "allow-then-deny" shape is the pragmatic macOS
 // state of the art (the same approach shipping browsers use): a hard deny-all
 // base is impractical on macOS because the dynamic linker, interpreters and
@@ -33,19 +34,21 @@ func seatbeltProfile(p Policy, workspace, scriptPath string) string {
 	b.WriteString("(version 1)\n")
 	b.WriteString("(allow default)\n")
 
-	if home := hiddenHome(); home != "" {
+	if roots := hiddenRoots(); len(roots) > 0 {
 		scriptDir := ""
 		if scriptPath != "" {
 			scriptDir = filepath.Dir(scriptPath)
 		}
-		readable := homeReadable(home, p.ReadOnlyPaths, ws, tmpC, scriptDir)
-		b.WriteString("(deny file-read* (subpath " + sbplString(home) + ") (with no-report))\n")
+		readable := hiddenReadable(roots, p.ReadOnlyPaths, ws, tmpC, scriptDir)
+		for _, root := range roots {
+			b.WriteString("(deny file-read* (subpath " + sbplString(root) + ") (with no-report))\n")
+		}
 		if len(readable) > 0 {
 			// Path lookups (realpath, getcwd) stat every parent directory, so
 			// the parents of a re-allowed path keep metadata access. They stay
 			// unlistable: file-read-data on them is still denied.
 			b.WriteString("(allow file-read-metadata\n")
-			for _, dir := range homeParents(home, readable) {
+			for _, dir := range hiddenParents(roots, readable) {
 				b.WriteString("  (literal " + sbplString(dir) + ")\n")
 			}
 			b.WriteString(")\n")
@@ -69,6 +72,9 @@ func seatbeltProfile(p Policy, workspace, scriptPath string) string {
 	b.WriteString("  (literal \"/dev/stdout\")\n")
 	b.WriteString("  (literal \"/dev/stderr\")\n")
 	b.WriteString("  (regex #\"^/dev/tty\")\n")
+	// The /usr/bin interpreter shims (xcrun) write a lookup cache into the
+	// per-user temp dir; without it every run prints an error on stderr.
+	b.WriteString("  (regex #\"^/private/var/folders/[^/]+/[^/]+/T/xcrun_db\")\n")
 	b.WriteString(")\n")
 	if !p.AllowNetwork {
 		b.WriteString("(deny network*)\n")
@@ -76,13 +82,21 @@ func seatbeltProfile(p Policy, workspace, scriptPath string) string {
 	return b.String()
 }
 
-// homeParents returns home and every directory between home and each path in
-// paths (exclusive), deduplicated, in a stable order.
-func homeParents(home string, paths []string) []string {
-	seen := map[string]bool{home: true}
-	out := []string{home}
+// hiddenParents returns, for each path, its hidden root and every directory
+// between that root and the path (exclusive), deduplicated, in a stable order.
+func hiddenParents(roots []string, paths []string) []string {
+	seen := map[string]bool{}
+	var out []string
 	for _, p := range paths {
-		for dir := filepath.Dir(p); underDir(dir, home) && !seen[dir]; dir = filepath.Dir(dir) {
+		root := containingRoot(roots, p)
+		if root == "" {
+			continue
+		}
+		if !seen[root] {
+			seen[root] = true
+			out = append(out, root)
+		}
+		for dir := filepath.Dir(p); underDir(dir, root) && !seen[dir]; dir = filepath.Dir(dir) {
 			seen[dir] = true
 			out = append(out, dir)
 		}

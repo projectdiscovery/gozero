@@ -271,3 +271,29 @@ func TestConfinedHomeAllowList(t *testing.T) {
 	assert.NotContains(t, out, "TOPSECRET")
 	assert.Contains(t, out, "RO", "allow-listed path must be read-only")
 }
+
+// TestConfinedHidesSystemDirs checks the dirs hidden besides the user's home:
+// other users' homes, root's home and (Linux) the runtime socket dirs. The
+// payload must see none of their entries.
+func TestConfinedHidesSystemDirs(t *testing.T) {
+	roots := hiddenRoots()
+	if len(roots) == 0 {
+		t.Skip("no hidden dirs on this platform")
+	}
+	c := nativeOrSkip(t)
+	defer func() { _ = c.Close() }()
+
+	var body strings.Builder
+	for _, root := range roots {
+		body.WriteString("echo \"" + root + "=$(ls -A '" + root + "' 2>/dev/null | wc -l | tr -d ' ')\"\n")
+	}
+	p, data := writeScript(t, body.String())
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	res, err := c.Run(ctx, Spec{Command: []string{"/bin/sh", p}, ScriptPath: p, ScriptData: data})
+	require.NoError(t, err)
+	for _, root := range roots {
+		assert.Contains(t, res.Stdout.String(), root+"=0\n", "%s must look empty inside the sandbox", root)
+	}
+}

@@ -2,6 +2,7 @@ package confine
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -60,4 +61,15 @@ func TestSeatbeltProfileHidesHome(t *testing.T) {
 	assert.NotContains(t, profile, "/opt/homebrew", "paths outside home are not hidden and need no rule")
 	// Parents of a re-allowed path keep metadata access only.
 	assert.Contains(t, profile, "(literal "+sbplString(filepath.Join(ch, "work"))+")")
+}
+
+func TestSeatbeltProfileHidesSystemDirs(t *testing.T) {
+	ws := t.TempDir()
+	profile := seatbeltProfile(Policy{}, ws, "")
+	for _, root := range hiddenRoots() {
+		assert.Contains(t, profile, "(deny file-read* (subpath "+sbplString(root)+") (with no-report))", "%s must be hidden", root)
+	}
+	if runtime.GOOS == "darwin" {
+		assert.Contains(t, profile, `(subpath "/Users")`, "other users' homes must be hidden")
+	}
 }

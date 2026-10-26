@@ -23,8 +23,10 @@ import (
 //     directory is bound read-only (it is normally already covered by the ro
 //     root, but binding it explicitly keeps the payload readable even if the
 //     script lives on a filesystem the root bind didn't capture).
-//   - $HOME is replaced by an empty tmpfs, then only the paths in the policy's
-//     ReadOnlyPaths allow list are bound back read-only (e.g. ~/.pyenv).
+//   - $HOME, the other users' homes, root's home and /run (runtime sockets
+//     such as the Docker socket) are replaced by empty tmpfs mounts, then only
+//     the paths in the policy's ReadOnlyPaths allow list are bound back
+//     read-only (e.g. ~/.pyenv).
 //   - --cap-drop ALL removes every capability as defense in depth on top of the
 //     user namespace.
 //
@@ -59,14 +61,24 @@ func bwrapArgs(bin string, p Policy, workspace, scriptPath string, env map[strin
 		"--tmpfs", "/tmp",
 	)
 
-	// Hide $HOME behind an empty tmpfs so the payload can't read ~/.ssh, shell
-	// history or credentials through the read-only root. The explicit allow
-	// list (policy ReadOnlyPaths) is bound back read-only on top of it. Binds
-	// below (workspace, temp, script dir) come later, so they still win when
-	// they live under $HOME.
-	if home := hiddenHome(); home != "" {
-		out = append(out, "--tmpfs", home)
-		for _, ro := range homeReadable(home, p.ReadOnlyPaths) {
+	// Hide $HOME, the other users' homes, root's home and the runtime socket
+	// dirs (/run: the Docker socket stays reachable through the read-only
+	// root otherwise, and an unshared network does not stop unix sockets)
+	// behind empty tmpfs mounts, so the payload can't read ~/.ssh, shell
+	// history or credentials, or drive a daemon. The explicit allow list
+	// (policy ReadOnlyPaths) is bound back read-only on top. Binds below
+	// (workspace, temp, script dir) come later, so they still win when they
+	// live in a hidden dir.
+	if roots := hiddenRoots(); len(roots) > 0 {
+		for _, root := range roots {
+			out = append(out, "--tmpfs", root)
+		}
+		var extra []string
+		if p.AllowNetwork {
+			// Keep DNS working when /run is hidden (systemd-resolved stub).
+			extra = append(extra, "/run/systemd/resolve")
+		}
+		for _, ro := range hiddenReadable(roots, p.ReadOnlyPaths, extra...) {
 			out = append(out, "--ro-bind-try", ro, ro)
 		}
 	}
