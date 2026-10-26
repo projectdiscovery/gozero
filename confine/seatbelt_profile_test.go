@@ -86,6 +86,9 @@ func TestSeatbeltProfileHidesSystemDirs(t *testing.T) {
 // dir (C/ caches, 0/) and the shared /tmp. Only the run's own workspace and
 // script file come back, plus the xcrun cache the /usr/bin shims need.
 func TestSeatbeltProfileHidesUserTemp(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Seatbelt and the per-user temp dir exist only on macOS")
+	}
 	tmp := canonicalPath(os.TempDir())
 	ws := canonicalPath(t.TempDir())
 	scriptDir := canonicalPath(t.TempDir())
