@@ -6,26 +6,22 @@ import (
 	"os/exec"
 
 	"github.com/projectdiscovery/gozero/cmdexec"
-	"github.com/projectdiscovery/gozero/sandbox"
+	"github.com/projectdiscovery/gozero/confine"
 	"github.com/projectdiscovery/gozero/types"
-)
-
-// VirtualEnvType represents the type of virtual environment
-type VirtualEnvType uint8
-
-const (
-	VirtualEnvLinux VirtualEnvType = iota
-	VirtualEnvDarwin
-	VirtualEnvWindows
-	VirtualEnvDocker
 )
 
 // Gozero is executor for gozero
 type Gozero struct {
-	Options *Options
+	Options  *Options
+	confiner confine.Confiner
 }
 
-// New creates a new gozero executor
+// New creates a new gozero executor.
+//
+// When Options.Sandbox is set (or Options.Confinement is provided), New builds
+// the confinement backend up front and FAILS CLOSED: if the requested backend
+// is unavailable, New returns an error instead of a permissive executor, so it
+// is impossible to reach Eval and then silently run unconfined.
 func New(options *Options) (*Gozero, error) {
 	if len(options.Engines) == 0 {
 		return nil, ErrNoEngines
@@ -45,7 +41,26 @@ func New(options *Options) (*Gozero, error) {
 	if options.engine == "" {
 		return nil, ErrNoValidEngine
 	}
-	return &Gozero{Options: options}, nil
+
+	g := &Gozero{Options: options}
+	if options.Sandbox || options.Confinement != nil {
+		c, err := confine.New(options.Confinement)
+		if err != nil {
+			// Fail closed: confinement was requested but cannot be established.
+			return nil, fmt.Errorf("gozero: confinement required but unavailable: %w", err)
+		}
+		g.confiner = c
+	}
+	return g, nil
+}
+
+// Close releases resources held by the executor (e.g. a confinement backend's
+// docker client). Safe to call on a nil confiner.
+func (g *Gozero) Close() error {
+	if g.confiner != nil {
+		return g.confiner.Close()
+	}
+	return nil
 }
 
 // Eval evaluates the source code and returns the output
@@ -54,6 +69,17 @@ func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (
 	if g.Options.EarlyCloseFileDescriptor {
 		_ = src.File.Close()
 	}
+	// Confined path: every execution goes through the OS-enforced boundary. This
+	// is the only place the payload runs when a sandbox was requested — there is
+	// no unconfined fallback.
+	if g.confiner != nil {
+		spec, err := g.buildSpec(src, input, args...)
+		if err != nil {
+			return nil, err
+		}
+		return g.confiner.Run(ctx, spec)
+	}
+
 	allargs := []string{}
 	allargs = append(allargs, g.Options.Args...)
 	allargs = append(allargs, src.Filename)
@@ -73,65 +99,58 @@ func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (
 	return gcmd.Execute(ctx)
 }
 
-// EvalWithVirtualEnv evaluates the source code in a virtual environment and returns the output
-// This function passes the source code into the virtual environment and external parameters as environment variables
-func (g *Gozero) EvalWithVirtualEnv(ctx context.Context, envType VirtualEnvType, src, input *Source, dockerConfig *sandbox.DockerConfiguration, args ...string) (*types.Result, error) {
-	// Read source code content
-	srcContent, err := src.ReadAll()
+// buildSpec assembles the confinement Spec for an execution. The source is
+// carried as bytes (never interpolated into a shell) and the declared
+// interpreter is command[0], so the confiner runs exactly the intended program.
+func (g *Gozero) buildSpec(src, input *Source, args ...string) (confine.Spec, error) {
+	scriptData, err := src.ReadAll()
+	if err != nil {
+		return confine.Spec{}, err
+	}
+
+	env := make(map[string]string, len(src.Variables)+len(input.Variables))
+	for _, v := range src.Variables {
+		env[v.Name] = v.Value
+	}
+	for _, v := range input.Variables {
+		env[v.Name] = v.Value
+	}
+
+	command := make([]string, 0, len(g.Options.Args)+len(args)+2)
+	command = append(command, g.Options.engine)
+	command = append(command, g.Options.Args...)
+	command = append(command, src.Filename)
+	command = append(command, args...)
+
+	return confine.Spec{
+		Command:    command,
+		ScriptPath: src.Filename,
+		ScriptData: scriptData,
+		Env:        env,
+		Stdin:      input.File,
+		Debug:      g.Options.DebugMode,
+	}, nil
+}
+
+// EvalWithVirtualEnv evaluates the source code in a one-off confinement backend
+// described by policy, independently of the executor's own Options.Sandbox
+// setting. Use it to pick a backend per call (e.g. force Docker) without
+// rebuilding the executor.
+//
+// It uses the same hardened, fail-closed confiner as Eval: the source is
+// injected as bytes (no shell heredoc to break out of) and, if the policy's
+// backend cannot be established, execution is refused rather than run
+// unconfined. A nil policy uses confine.DefaultPolicy().
+func (g *Gozero) EvalWithVirtualEnv(ctx context.Context, policy *confine.Policy, src, input *Source, args ...string) (*types.Result, error) {
+	confiner, err := confine.New(policy)
+	if err != nil {
+		return nil, fmt.Errorf("gozero: confinement required but unavailable: %w", err)
+	}
+	defer func() { _ = confiner.Close() }()
+
+	spec, err := g.buildSpec(src, input, args...)
 	if err != nil {
 		return nil, err
 	}
-
-	// Prepare environment variables from source and input variables
-	envVars := make(map[string]string)
-
-	// Add source variables as environment variables
-	for _, variable := range src.Variables {
-		envVars[variable.Name] = variable.Value
-	}
-
-	// Add input variables as environment variables
-	for _, variable := range input.Variables {
-		envVars[variable.Name] = variable.Value
-	}
-
-	// Handle different virtual environment types
-	switch envType {
-	case VirtualEnvDocker:
-		// Update Docker configuration with environment variables
-		dockerConfig.Environment = envVars
-
-		// Create Docker sandbox with updated configuration
-		dockerSandbox, err := sandbox.NewDockerSandbox(ctx, dockerConfig)
-		if err != nil {
-			return nil, err
-		}
-
-		// Use the engine as the interpreter
-		interpreter := g.Options.engine
-		if interpreter == "" {
-			// Fallback to first engine if engine not set
-			if len(g.Options.Engines) > 0 {
-				interpreter = g.Options.Engines[0]
-			} else {
-				interpreter = "sh" // Default to shell
-			}
-		}
-
-		// Execute the source code in the Docker container
-		result, err := dockerSandbox.RunSource(ctx, string(srcContent), interpreter)
-		if err != nil {
-			return nil, err
-		}
-
-		return result, nil
-
-	case VirtualEnvLinux, VirtualEnvDarwin, VirtualEnvWindows:
-		// For now, these are not implemented - they would use the regular Eval method
-		// In the future, these could be implemented to use different sandboxing mechanisms
-		return nil, fmt.Errorf("virtual environment type %d is not yet implemented", envType)
-
-	default:
-		return nil, fmt.Errorf("unsupported virtual environment type: %d", envType)
-	}
+	return confiner.Run(ctx, spec)
 }

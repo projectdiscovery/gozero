@@ -1,0 +1,149 @@
+package confine
+
+import (
+	"fmt"
+	"path/filepath"
+	"sort"
+)
+
+// bwrapArgs builds the full bubblewrap (bwrap) command line that wraps argv.
+//
+// Posture (deny-by-default):
+//
+//   - --unshare-all creates fresh user, mount, PID, IPC, UTS, cgroup and network
+//     namespaces, so the payload sees none of the host's processes, IPC, or
+//     network. --share-net is added back only when the policy allows network.
+//   - --die-with-parent tears the sandbox down if gozero exits (no orphans).
+//   - --new-session detaches the controlling terminal (blocks TIOCSTI injection).
+//   - --clearenv drops the inherited environment; only the explicitly allowed
+//     variables are re-added with --setenv, so ambient secrets never leak in.
+//   - The host root is bind-mounted READ-ONLY so the interpreter and its shared
+//     libraries are reachable, then fresh /proc, /dev and a tmpfs /tmp are laid
+//     on top. Exactly one path — the workspace — is bound writable. The script
+//     file alone is bound read-only (its directory is usually the host temp
+//     dir, which must stay hidden behind the private /tmp).
+//   - $HOME, the other users' homes, root's home and /run (runtime sockets
+//     such as the Docker socket) are replaced by empty tmpfs mounts, then only
+//     the paths in the policy's ReadOnlyPaths allow list are bound back
+//     read-only (e.g. ~/.pyenv).
+//   - --cap-drop ALL removes every capability as defense in depth on top of the
+//     user namespace.
+//
+// Flag order matters: bwrap applies binds left-to-right and later binds win for
+// overlapping paths, so the read-only root is laid down before the writable
+// workspace re-binds over it.
+//
+// bwrap is a transparent wrapper: stdin/stdout/stderr and the child's exit code
+// pass straight through.
+func bwrapArgs(bin string, p Policy, workspace, scriptPath string, env map[string]string, argv []string) []string {
+	ws := canonicalPath(workspace)
+
+	out := []string{
+		bin,
+		"--unshare-all",
+		"--die-with-parent",
+		"--new-session",
+		"--clearenv",
+	}
+	if p.AllowNetwork {
+		out = append(out, "--share-net")
+	}
+	if !p.AllowCapabilities {
+		out = append(out, "--cap-drop", "ALL")
+	}
+
+	// Read-only host root first, then overlay pseudo-filesystems.
+	out = append(out,
+		"--ro-bind", "/", "/",
+		"--proc", "/proc",
+		"--dev", "/dev",
+		"--tmpfs", "/tmp",
+	)
+
+	// Hide $HOME, the other users' homes, root's home and the runtime socket
+	// dirs (/run: the Docker socket stays reachable through the read-only
+	// root otherwise, and an unshared network does not stop unix sockets)
+	// behind empty tmpfs mounts, so the payload can't read ~/.ssh, shell
+	// history or credentials, or drive a daemon. The explicit allow list
+	// (policy ReadOnlyPaths) is bound back read-only on top. Binds below
+	// (script, workspace, temp) come later, so they still win when they
+	// live in a hidden dir.
+	if roots := hiddenRoots(); len(roots) > 0 {
+		for _, root := range roots {
+			out = append(out, "--tmpfs", root)
+		}
+		var extra []string
+		if p.AllowNetwork {
+			// Keep DNS working when /run is hidden (systemd-resolved stub).
+			extra = append(extra, "/run/systemd/resolve")
+		}
+		for _, ro := range hiddenReadable(roots, p.ReadOnlyPaths, extra...) {
+			out = append(out, "--ro-bind-try", ro, ro)
+		}
+	}
+
+	// Bind only the script file read-only, never its directory: the script
+	// usually sits in the host temp dir, and binding that directory would put
+	// the whole host /tmp back over the private tmpfs (and, coming after the
+	// workspace bind, would make a workspace inside it read-only). It comes
+	// before the writable binds so those always win.
+	if scriptPath != "" {
+		if sp := canonicalPath(scriptPath); sp != "" && !underDir(sp, ws) {
+			out = append(out, "--ro-bind-try", sp, sp)
+		}
+	}
+
+	// Single writable path: the workspace.
+	if ws != "" {
+		out = append(out, "--bind", ws, ws)
+	}
+	if t := canonicalPath(p.Tmp); t != "" && t != ws {
+		out = append(out, "--bind", t, t)
+	}
+
+	// Non-root identity inside the user namespace.
+	if p.RunAsUID >= 0 {
+		out = append(out, "--uid", fmt.Sprintf("%d", p.RunAsUID))
+	}
+	if p.RunAsGID >= 0 {
+		out = append(out, "--gid", fmt.Sprintf("%d", p.RunAsGID))
+	}
+
+	if ws != "" {
+		out = append(out, "--chdir", ws)
+	}
+
+	// Re-inject the scrubbed environment deterministically.
+	for _, k := range sortedKeys(env) {
+		out = append(out, "--setenv", k, env[k])
+	}
+
+	out = append(out, "--")
+	out = append(out, argv...)
+	return out
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// canonicalPath resolves symlinks so a bind/profile matches the path the kernel
+// actually evaluates, falling back to an absolute/clean path when resolution
+// fails (e.g. the path does not exist yet).
+func canonicalPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return filepath.Clean(p)
+}

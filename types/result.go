@@ -16,6 +16,7 @@ type Result struct {
 	Stdout    bytes.Buffer
 	Stderr    bytes.Buffer
 	exitErr   *exec.ExitError // return exit error this includes exit code , command sysusage and more
+	exitCode  *int            // explicit exit code for backends without an *exec.ExitError (e.g. containers)
 	DebugData *bytes.Buffer   // only available when debug mode is enabled
 }
 
@@ -29,8 +30,18 @@ func (r *Result) SetExitError(err *exec.ExitError) {
 	r.exitErr = err
 }
 
+// SetExitCode records an explicit exit code for execution backends that do not
+// surface an *exec.ExitError (e.g. containers, where the code comes from the
+// daemon's wait response). It takes precedence over the exit error.
+func (r *Result) SetExitCode(code int) {
+	r.exitCode = &code
+}
+
 // GetExitCode returns the exit code of the command.
 func (r *Result) GetExitCode() int {
+	if r.exitCode != nil {
+		return *r.exitCode
+	}
 	if r.exitErr == nil {
 		return 0
 	}

@@ -4,19 +4,51 @@ gozero: the wannabe zero dependency [language-here] runtime for Go developers
 
 ## Isolation
 
-### Windows
+Confinement is provided by the `confine` package. It is deny-by-default (no
+network, dropped capabilities, no-new-privileges, read-only root filesystem,
+hidden home directory, private namespaces, cpu/memory/pids limits, non-root
+user, minimal environment) and fail
+closed: when confinement is requested but the backend is unavailable, execution
+is refused instead of falling back to the host.
 
-Native isolation on windows is supported only with the PRO version and is implemented via Windows Sandbox (which needs to be [activated](https://www.makeuseof.com/enable-set-up-windows-sandbox-windows-11/)).
+Backends:
 
-### Darwin
+- Linux: bubblewrap (`bwrap`).
+- macOS: Seatbelt (`sandbox-exec`).
+- Any OS with a Docker daemon: a hardened, single-shot container.
 
-OSX implements native isolation via the command `sandbox-exec`. The command line interface is marked as deprecated, but the system functionality is actively supported, and profiles are still used in well-known software like chrome, firefox.
+Source is passed to the interpreter as bytes, never interpolated into a shell.
 
-### Linux
+## Usage
 
-On Linux, the functionality is implemented with the default command `systemd-run`, which should be available on most systems and allow a vast fine-grained sandbox configuration via SecComp and EBPF
+Confinement is off by default. Enable it per executor:
 
+```go
+opts := &gozero.Options{Engines: []string{"python3"}, Sandbox: true}
+g, err := gozero.New(opts) // fails closed if no backend is available
+```
 
-## Note:
+Tune the posture with `Options.Confinement` (a `*confine.Policy`), or pick a
+backend per call with `Gozero.EvalWithVirtualEnv`.
 
-Sandbox is not enabled by default and needs to be used manually through sdk
+Every security switch in `confine.Policy` is an opt-out whose zero value is the hardened setting, so a sparse policy such as `&confine.Policy{Backend: confine.BackendDocker}` is fully hardened. The opt-outs are `AllowNetwork`, `AllowCapabilities`, `AllowNewPrivileges` and `WritableRootfs`.
+
+### Home directory
+
+The native backends hide `$HOME` from the payload. Seatbelt denies reads under it, and bubblewrap mounts an empty tmpfs over it. The payload cannot read `~/.ssh`, shell history or credentials. The workspace and the script directory stay reachable.
+
+The native backends also hide the other users' homes and root's home (`/home` and `/root` on Linux, `/Users` and `/var/root` on macOS). On Linux they hide `/run` too: it holds daemon sockets such as the Docker socket, and an unshared network namespace does not block unix sockets. On macOS, the network deny blocks unix sockets.
+
+Each native backend runs a probe once before use. If bubblewrap cannot create its namespaces (for example in an unprivileged container, or under Landlock, which forbids mounts), or if `sandbox-exec` cannot apply a profile, `New` returns `ErrConfinementUnavailable`.
+
+If the interpreter lives under `$HOME` (pyenv, nvm, a Homebrew prefix in the home directory), list it in `ReadOnlyPaths`. Each entry is exposed read-only. A leading `~` is expanded. Paths outside `$HOME` are already readable and need no entry.
+
+```go
+policy := confine.DefaultPolicy()
+policy.ReadOnlyPaths = []string{"~/.pyenv"}
+opts := &gozero.Options{Engines: []string{"python3"}, Sandbox: true, Confinement: &policy}
+```
+
+### Docker user
+
+The Docker backend runs the payload as `65534:65534` (nobody), not as the image user, which is root for most base images. `RunAsUID`/`RunAsGID` select another uid/gid, and `DockerUser` overrides the user verbatim (for example `"1000:1000"`).
