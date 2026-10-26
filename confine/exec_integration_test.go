@@ -302,7 +302,8 @@ func TestConfinedHidesSystemDirs(t *testing.T) {
 // temp dir holds other runs' files (such as a scan's browser profiles and
 // dedupe db), so a payload must not read a file there outside its own
 // workspace or next to its script, nor list other runs' dirs in the temp
-// dir. Its own workspace must stay writable.
+// dir. The shared /tmp and the macOS per-user cache dir are hidden too. Its
+// own workspace must stay writable.
 func TestConfinedHidesUserTemp(t *testing.T) {
 	c := nativeOrSkip(t)
 	defer func() { _ = c.Close() }()
@@ -311,7 +312,25 @@ func TestConfinedHidesUserTemp(t *testing.T) {
 	canary := filepath.Join(other, "canary")
 	require.NoError(t, os.WriteFile(canary, []byte("TEMPSECRET"), 0o600))
 
+	// A canary in the shared /tmp, and one in the macOS per-user cache dir
+	// (C/ next to T/), which holds other apps' caches.
+	sharedDir, err := os.MkdirTemp("/tmp", "gozero-canary-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(sharedDir) })
+	sharedCanary := filepath.Join(sharedDir, "canary")
+	require.NoError(t, os.WriteFile(sharedCanary, []byte("SHAREDSECRET"), 0o600))
+	cacheCanary := ""
+	if ud := darwinUserDir(); ud != "" {
+		cacheDir, err := os.MkdirTemp(filepath.Join(ud, "C"), "gozero-canary-*")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.RemoveAll(cacheDir) })
+		cacheCanary = filepath.Join(cacheDir, "canary")
+		require.NoError(t, os.WriteFile(cacheCanary, []byte("CACHESECRET"), 0o600))
+	}
+
 	p, data := writeScript(t, "cat \"$CANARY\" 2>/dev/null || echo NO_CANARY\n"+
+		"cat \"$SHARED\" 2>/dev/null || echo NO_SHARED\n"+
+		"cat \"$CACHE\" 2>/dev/null || echo NO_CACHE\n"+
 		"cat \"$SIBLING\" 2>/dev/null || echo NO_SIBLING\n"+
 		"echo \"SEEN=$(ls -A \"$TMPROOT\" 2>/dev/null | grep -c \"$OTHER\")\"\n"+
 		"echo w > ws-file && cat ws-file\n")
@@ -322,6 +341,8 @@ func TestConfinedHidesUserTemp(t *testing.T) {
 
 	res, err := c.Run(ctx, Spec{Command: []string{"/bin/sh", p}, ScriptPath: p, ScriptData: data, Env: map[string]string{
 		"CANARY":  canonicalPath(canary),
+		"SHARED":  canonicalPath(sharedCanary),
+		"CACHE":   canonicalPath(cacheCanary),
 		"SIBLING": canonicalPath(sibling),
 		"TMPROOT": canonicalPath(os.TempDir()),
 		"OTHER":   filepath.Base(filepath.Dir(other)),
@@ -330,6 +351,12 @@ func TestConfinedHidesUserTemp(t *testing.T) {
 	out := res.Stdout.String()
 	assert.Contains(t, out, "NO_CANARY", "a file in the temp dir outside the workspace must be unreadable")
 	assert.NotContains(t, out, "TEMPSECRET")
+	assert.Contains(t, out, "NO_SHARED", "a file in the shared /tmp must be unreadable")
+	assert.NotContains(t, out, "SHAREDSECRET")
+	if cacheCanary != "" {
+		assert.Contains(t, out, "NO_CACHE", "a file in the per-user cache dir must be unreadable")
+		assert.NotContains(t, out, "CACHESECRET")
+	}
 	assert.Contains(t, out, "NO_SIBLING", "only the script file is readable, not its dir")
 	assert.NotContains(t, out, "SIBLINGSECRET")
 	assert.Contains(t, out, "SEEN=0\n", "other runs' dirs in the temp dir must not be listable")

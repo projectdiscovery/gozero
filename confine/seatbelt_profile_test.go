@@ -82,7 +82,8 @@ func TestSeatbeltProfileHidesSystemDirs(t *testing.T) {
 }
 
 // The per-user temp dir holds other runs' files (other scans' work dirs,
-// other payloads' scripts), so it is hidden. Only the run's own workspace and
+// other payloads' scripts), so it is hidden, with the rest of the per-user
+// dir (C/ caches, 0/) and the shared /tmp. Only the run's own workspace and
 // script file come back, plus the xcrun cache the /usr/bin shims need.
 func TestSeatbeltProfileHidesUserTemp(t *testing.T) {
 	tmp := canonicalPath(os.TempDir())
@@ -105,4 +106,12 @@ func TestSeatbeltProfileHidesUserTemp(t *testing.T) {
 	assert.NotContains(t, allow, sbplString(scriptDir)+")", "script dir stays hidden")
 	assert.NotContains(t, allow, "(subpath "+sbplString(tmp)+")", "temp dir stays hidden")
 	assert.Contains(t, allow, "(regex "+xcrunDBRegex+")", "xcrun cache is readable")
+
+	if runtime.GOOS == "darwin" {
+		assert.Contains(t, profile, `(deny file-read* (subpath "/private/tmp") (with no-report))`, "the shared /tmp must be hidden")
+		ud := canonicalPath(darwinUserDir())
+		require.NotEmpty(t, ud)
+		assert.Contains(t, profile, "(deny file-read* (subpath "+sbplString(ud)+") (with no-report))", "the whole per-user dir (T, C, 0) must be hidden")
+		assert.NotContains(t, allow, "(subpath "+sbplString(filepath.Join(ud, "C"))+")", "the per-user cache dir stays hidden")
+	}
 }

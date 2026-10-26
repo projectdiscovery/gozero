@@ -14,8 +14,8 @@ import (
 //
 // Posture: (allow default) opens the world, then file *writes* are denied
 // everywhere and re-allowed only under the workspace, the temp dir and a few
-// harmless /dev nodes; reads of $HOME, the other users' homes, root's home and
-// the per-user temp dir are denied except for the workspace, the policy's Tmp
+// harmless /dev nodes; reads of $HOME, the other users' homes, root's home,
+// the per-user dir under /var/folders and /tmp are denied except for the workspace, the policy's Tmp
 // dir, the script file and the policy's ReadOnlyPaths allow list; optionally
 // all network is denied. This "allow-then-deny" shape is the pragmatic macOS
 // state of the art (the same approach shipping browsers use): a hard deny-all
@@ -38,8 +38,9 @@ func seatbeltProfile(p Policy, workspace, scriptPath string) string {
 	b.WriteString("(version 1)\n")
 	b.WriteString("(allow default)\n")
 
-	// The per-user temp dir is hidden too: it holds the files of other runs,
-	// such as other scans' work dirs and other payloads' scripts.
+	// The temp dirs are hidden too: they hold the files of other runs, such
+	// as other scans' work dirs and other payloads' scripts, and other apps'
+	// caches.
 	if roots := hiddenRoots(userTempDirs()...); len(roots) > 0 {
 		readable := hiddenReadable(roots, p.ReadOnlyPaths, ws, tmpC)
 		// Only the script file is re-allowed, never its directory: the script
@@ -101,13 +102,15 @@ func seatbeltProfile(p Policy, workspace, scriptPath string) string {
 	return b.String()
 }
 
-// xcrunDBRegex matches the xcrun lookup cache in the per-user temp dir.
-const xcrunDBRegex = `#"^/private/var/folders/[^/]+/[^/]+/T/xcrun_db$"`
+// xcrunDBRegex matches the xcrun lookup cache in the per-user temp dir (T),
+// and the xcrun_db-XXXXXXXX temp file that xcrun writes and renames over it.
+const xcrunDBRegex = `#"^/private/var/folders/[^/]+/[^/]+/T/xcrun_db(-[^/]+)?$"`
 
-// darwinUserTempDir is the per-user temp dir that macOS gives each user under
-// /var/folders (confstr DARWIN_USER_TEMP_DIR). It can differ from $TMPDIR when
-// the caller overrides TMPDIR. Read once, with an absolute getconf path.
-var darwinUserTempDir = sync.OnceValue(func() string {
+// darwinUserDir is the per-user dir that macOS gives each user under
+// /var/folders: the parent of DARWIN_USER_TEMP_DIR (T), which also holds the
+// cache dir (C) and the user dir (0). It can differ from $TMPDIR when the
+// caller overrides TMPDIR. Read once, with an absolute getconf path.
+var darwinUserDir = sync.OnceValue(func() string {
 	if runtime.GOOS != "darwin" {
 		return ""
 	}
@@ -115,16 +118,21 @@ var darwinUserTempDir = sync.OnceValue(func() string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	t := strings.TrimSpace(string(out))
+	if t == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Clean(t))
 })
 
-// userTempDirs returns the canonical per-user temp dirs that Seatbelt hides:
-// $TMPDIR (os.TempDir) and the macOS per-user temp dir. A dir less than two
-// levels deep (such as /private) is never hidden, because it holds system
-// files; hiddenRoots drops dirs that do not exist.
+// userTempDirs returns the canonical temp dirs that Seatbelt hides: $TMPDIR
+// (os.TempDir), the macOS per-user dir under /var/folders and the shared /tmp
+// (/private/tmp on macOS). A dir less than two levels deep (such as /private)
+// is never hidden, because it holds system files; hiddenRoots drops dirs that
+// do not exist.
 func userTempDirs() []string {
 	var out []string
-	for _, d := range []string{os.TempDir(), darwinUserTempDir()} {
+	for _, d := range []string{os.TempDir(), darwinUserDir(), "/tmp"} {
 		if d == "" {
 			continue
 		}
