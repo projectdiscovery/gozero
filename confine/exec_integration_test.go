@@ -216,3 +216,58 @@ func TestConfinedTimeoutKillsPayload(t *testing.T) {
 	assert.Less(t, elapsed, 10*time.Second,
 		"timeout was not enforced; payload ran for %s", elapsed)
 }
+
+// TestConfinedHidesRealHome runs against the real $HOME: the payload must not
+// see any entry in it (Seatbelt denies the read, bwrap shows an empty tmpfs)
+// and must not read ~/.ssh.
+func TestConfinedHidesRealHome(t *testing.T) {
+	home := hiddenHome()
+	if home == "" {
+		t.Skip("no home directory to hide")
+	}
+	c := nativeOrSkip(t)
+	defer func() { _ = c.Close() }()
+
+	p, data := writeScript(t, "ls -A \"$REAL_HOME\" 2>/dev/null | wc -l | tr -d ' '\n"+
+		"ls -A \"$REAL_HOME/.ssh\" >/dev/null 2>&1 && echo SSH=readable || echo SSH=denied\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	res, err := c.Run(ctx, Spec{Command: []string{"/bin/sh", p}, ScriptPath: p, ScriptData: data, Env: map[string]string{"REAL_HOME": home}})
+	require.NoError(t, err)
+	out := strings.Fields(res.Stdout.String())
+	require.Len(t, out, 2, "unexpected output: %q", res.Stdout.String())
+	assert.Equal(t, "0", out[0], "home must look empty inside the sandbox")
+	assert.Equal(t, "SSH=denied", out[1])
+}
+
+// TestConfinedHomeAllowList checks that only ReadOnlyPaths entries under $HOME
+// are readable, and that they stay read-only.
+func TestConfinedHomeAllowList(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".secret"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".secret", "key"), []byte("TOPSECRET"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".pyenv", "bin"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".pyenv", "bin", "tool"), []byte("ALLOWED"), 0o644))
+
+	c, err := New(&Policy{Backend: BackendAuto, ReadOnlyPaths: []string{"~/.pyenv"}})
+	if err != nil {
+		t.Skipf("no native confiner available on this host: %v", err)
+	}
+	defer func() { _ = c.Close() }()
+
+	p, data := writeScript(t, "cat \"$H/.pyenv/bin/tool\" 2>/dev/null || echo NO_TOOL\n"+
+		"cat \"$H/.secret/key\" 2>/dev/null || echo NO_SECRET\n"+
+		"echo x > \"$H/.pyenv/bin/tool\" 2>/dev/null && echo WROTE || echo RO\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	res, err := c.Run(ctx, Spec{Command: []string{"/bin/sh", p}, ScriptPath: p, ScriptData: data, Env: map[string]string{"H": canonicalPath(home)}})
+	require.NoError(t, err)
+	out := res.Stdout.String()
+	assert.Contains(t, out, "ALLOWED", "allow-listed home path must be readable")
+	assert.Contains(t, out, "NO_SECRET", "other home paths must stay hidden")
+	assert.NotContains(t, out, "TOPSECRET")
+	assert.Contains(t, out, "RO", "allow-listed path must be read-only")
+}

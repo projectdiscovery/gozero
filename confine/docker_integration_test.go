@@ -19,6 +19,8 @@ import (
 // daemon (e.g. the windows-latest runner) rejects, so those hosts skip too.
 func dockerOrSkip(t *testing.T) Confiner {
 	t.Helper()
+	// A sparse policy on purpose: only Backend is set, so every test below runs
+	// under the zero-value security switches and proves they are hardened.
 	c, err := New(&Policy{Backend: BackendDocker})
 	if err != nil {
 		t.Skipf("docker confinement unavailable on this host: %v", err)
@@ -112,4 +114,28 @@ func TestDockerConfinedBlocksNetwork(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "BLOCKED", strings.TrimSpace(res.Stdout.String()),
 		"container reached the network under a network-denied policy")
+}
+
+// TestDockerSparsePolicyIsHardenedAtRuntime runs a payload under a policy that
+// only sets Backend and checks the kernel view from inside the container: no
+// effective capabilities, no_new_privs set, a read-only rootfs and the nobody
+// uid. It guards the fail-open regression where these were opt-in bools.
+func TestDockerSparsePolicyIsHardenedAtRuntime(t *testing.T) {
+	c := dockerOrSkip(t)
+	defer func() { _ = c.Close() }()
+
+	p, data := writeScript(t, "grep -E '^(CapEff|NoNewPrivs):' /proc/self/status\n"+
+		"touch /rootfs-probe 2>/dev/null && echo ROOTFS=rw || echo ROOTFS=ro\n"+
+		"echo UID=$(id -u) GID=$(id -g)\n")
+	ctx, cancel := dockerCtx(t)
+	defer cancel()
+
+	res, err := c.Run(ctx, Spec{Command: []string{"/bin/sh", p}, ScriptPath: p, ScriptData: data})
+	require.NoError(t, err)
+	out := res.Stdout.String()
+	t.Log(out)
+	assert.Regexp(t, `CapEff:\s+0000000000000000`, out, "all capabilities must be dropped")
+	assert.Regexp(t, `NoNewPrivs:\s+1`, out, "no_new_privs must be set")
+	assert.Contains(t, out, "ROOTFS=ro", "rootfs must be read-only")
+	assert.Contains(t, out, "UID=65534 GID=65534", "must run as nobody, not the image's root user")
 }

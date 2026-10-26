@@ -1,6 +1,7 @@
 package confine
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -72,6 +73,35 @@ func TestBwrapArgsHardenedByDefault(t *testing.T) {
 	assert.Equal(t, argv, got[dashIdx+1:], "argv must be passed verbatim after --")
 }
 
+func TestBwrapArgsZeroPolicyDropsCapabilities(t *testing.T) {
+	got := bwrapArgs("bwrap", Policy{}.normalized(), t.TempDir(), "", nil, []string{"sh"})
+	assert.True(t, containsSeq(got, []string{"--cap-drop", "ALL"}), "zero policy must drop all capabilities")
+
+	p := DefaultPolicy()
+	p.AllowCapabilities = true
+	assert.NotContains(t, bwrapArgs("bwrap", p, t.TempDir(), "", nil, []string{"sh"}), "--cap-drop")
+}
+
+func TestBwrapArgsHidesHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	ch := canonicalPath(home)
+	pyenv := filepath.Join(ch, ".pyenv")
+	ws := filepath.Join(ch, "ws")
+
+	p := DefaultPolicy()
+	p.ReadOnlyPaths = []string{"~/.pyenv", "/usr/local"}
+	got := bwrapArgs("bwrap", p, ws, "", nil, []string{"sh"})
+
+	tmpfsIdx := indexOfSeq(got, []string{"--tmpfs", ch})
+	require.NotEqual(t, -1, tmpfsIdx, "home must be covered by a tmpfs")
+	assert.Greater(t, tmpfsIdx, indexOfSeq(got, []string{"--ro-bind", "/", "/"}), "tmpfs must come after the root bind")
+	roIdx := indexOfSeq(got, []string{"--ro-bind-try", pyenv, pyenv})
+	assert.Greater(t, roIdx, tmpfsIdx, "allow-listed home path is bound back read-only after the tmpfs")
+	assert.Greater(t, indexOfSeq(got, []string{"--bind", ws, ws}), tmpfsIdx, "workspace under home is bound after the tmpfs")
+	assert.False(t, containsSeq(got, []string{"--ro-bind-try", "/usr/local", "/usr/local"}), "paths outside home are not hidden and need no bind")
+}
+
 func TestBwrapArgsNetworkToggle(t *testing.T) {
 	ws := t.TempDir()
 	p := DefaultPolicy()
@@ -88,6 +118,15 @@ func TestBwrapArgsNonRootIdentity(t *testing.T) {
 	got := bwrapArgs("bwrap", p, ws, "", nil, []string{"sh"})
 	assert.True(t, containsSeq(got, []string{"--uid", "1000"}))
 	assert.True(t, containsSeq(got, []string{"--gid", "1000"}))
+}
+
+func indexOfSeq(s, sub []string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if equalSlice(s[i:i+len(sub)], sub) {
+			return i
+		}
+	}
+	return -1
 }
 
 func indexOf(s []string, v string) int {

@@ -50,7 +50,7 @@ func (c *seatbeltConfiner) Run(ctx context.Context, spec Spec) (*types.Result, e
 		defer func() { _ = os.RemoveAll(ws) }()
 	}
 
-	profile := seatbeltProfile(ws, c.policy.Tmp, c.policy.AllowNetwork)
+	profile := seatbeltProfile(c.policy, ws, spec.ScriptPath)
 
 	argv := make([]string, 0, len(spec.Command)+3)
 	argv = append(argv, c.bin, "-p", profile)

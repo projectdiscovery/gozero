@@ -2,10 +2,12 @@ package gozero
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/projectdiscovery/gozero/confine"
+	"github.com/projectdiscovery/gozero/types"
 	osutils "github.com/projectdiscovery/utils/os"
 	"github.com/stretchr/testify/require"
 )
@@ -96,4 +98,44 @@ func TestEvalSandboxed(t *testing.T) {
 	out, err := g.Eval(context.Background(), src, input)
 	require.Nil(t, err)
 	require.Equal(t, "sandboxed-ok", strings.TrimSpace(out.Stdout.String()))
+}
+
+// TestEvalSandboxedPythonHidesHome runs python3 through Eval with Sandbox on:
+// the interpreter must still start, and the real $HOME (e.g. ~/.ssh) must not
+// be readable from the payload.
+func TestEvalSandboxedPythonHidesHome(t *testing.T) {
+	if osutils.IsWindows() {
+		t.Skip("native confinement not implemented on windows")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "/" {
+		t.Skip("no home directory to hide")
+	}
+	g, err := New(&Options{Engines: []string{"python3"}, Sandbox: true})
+	if err != nil {
+		t.Skipf("no native confiner or python3: %v", err)
+	}
+	defer func() { _ = g.Close() }()
+
+	src, err := NewSourceWithString(`import os, sys
+print("py", sys.version_info[0])
+for p in (os.environ["REAL_HOME"], os.path.join(os.environ["REAL_HOME"], ".ssh")):
+    try:
+        print("listed", len(os.listdir(p)))
+    except OSError as e:
+        print("denied", e.errno)
+`, "", "")
+	require.Nil(t, err)
+	defer func() { _ = src.Cleanup() }()
+	src.AddVariable(types.Variable{Name: "REAL_HOME", Value: home})
+	input, err := NewSource()
+	require.Nil(t, err)
+	defer func() { _ = input.Cleanup() }()
+
+	out, err := g.Eval(context.Background(), src, input)
+	require.Nil(t, err)
+	got := out.Stdout.String()
+	t.Log(got)
+	require.Contains(t, got, "py 3")
+	require.NotRegexp(t, `listed [1-9]`, got, "home entries must not be visible")
 }

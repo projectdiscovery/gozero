@@ -26,6 +26,42 @@ func TestDockerHostConfigHardenedByDefault(t *testing.T) {
 	assert.Contains(t, hc.Tmpfs, "/tmp")
 }
 
+// TestDockerSparsePolicyIsHardened guards the fail-open regression where the
+// security switches were opt-in bools: a policy that only sets Backend must
+// still drop every capability, set no-new-privileges, use a read-only rootfs
+// and run as a non-root user.
+func TestDockerSparsePolicyIsHardened(t *testing.T) {
+	p := Policy{Backend: BackendDocker}.normalized()
+	hc := dockerHostConfig(p)
+	assert.Equal(t, container.NetworkMode("none"), hc.NetworkMode)
+	assert.Equal(t, []string{"ALL"}, hc.CapDrop)
+	assert.Contains(t, hc.SecurityOpt, "no-new-privileges:true")
+	assert.True(t, hc.ReadonlyRootfs)
+	assert.Equal(t, "65534:65534", dockerUser(p))
+}
+
+func TestDockerHostConfigOptOuts(t *testing.T) {
+	p := DefaultPolicy()
+	p.AllowCapabilities = true
+	p.AllowNewPrivileges = true
+	p.WritableRootfs = true
+	hc := dockerHostConfig(p)
+	assert.Empty(t, hc.CapDrop)
+	assert.NotContains(t, hc.SecurityOpt, "no-new-privileges:true")
+	assert.False(t, hc.ReadonlyRootfs)
+}
+
+func TestDockerUser(t *testing.T) {
+	p := DefaultPolicy()
+	assert.Equal(t, "65534:65534", dockerUser(p), "default must be nobody, not the image user")
+	p.RunAsUID, p.RunAsGID = 1000, 1001
+	assert.Equal(t, "1000:1001", dockerUser(p))
+	p.RunAsGID = -1
+	assert.Equal(t, "1000", dockerUser(p))
+	p.DockerUser = "root"
+	assert.Equal(t, "root", dockerUser(p), "DockerUser overrides everything")
+}
+
 func TestDockerHostConfigNetworkToggle(t *testing.T) {
 	p := DefaultPolicy()
 	p.AllowNetwork = true

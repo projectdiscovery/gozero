@@ -23,6 +23,8 @@ import (
 //     directory is bound read-only (it is normally already covered by the ro
 //     root, but binding it explicitly keeps the payload readable even if the
 //     script lives on a filesystem the root bind didn't capture).
+//   - $HOME is replaced by an empty tmpfs, then only the paths in the policy's
+//     ReadOnlyPaths allow list are bound back read-only (e.g. ~/.pyenv).
 //   - --cap-drop ALL removes every capability as defense in depth on top of the
 //     user namespace.
 //
@@ -45,7 +47,7 @@ func bwrapArgs(bin string, p Policy, workspace, scriptPath string, env map[strin
 	if p.AllowNetwork {
 		out = append(out, "--share-net")
 	}
-	if p.DropAllCapabilities {
+	if !p.AllowCapabilities {
 		out = append(out, "--cap-drop", "ALL")
 	}
 
@@ -56,6 +58,18 @@ func bwrapArgs(bin string, p Policy, workspace, scriptPath string, env map[strin
 		"--dev", "/dev",
 		"--tmpfs", "/tmp",
 	)
+
+	// Hide $HOME behind an empty tmpfs so the payload can't read ~/.ssh, shell
+	// history or credentials through the read-only root. The explicit allow
+	// list (policy ReadOnlyPaths) is bound back read-only on top of it. Binds
+	// below (workspace, temp, script dir) come later, so they still win when
+	// they live under $HOME.
+	if home := hiddenHome(); home != "" {
+		out = append(out, "--tmpfs", home)
+		for _, ro := range homeReadable(home, p.ReadOnlyPaths) {
+			out = append(out, "--ro-bind-try", ro, ro)
+		}
+	}
 
 	// Single writable path: the workspace.
 	if ws != "" {

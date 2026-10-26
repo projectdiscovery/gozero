@@ -90,18 +90,7 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 	env["HOME"] = containerWorkDir
 	env["TMPDIR"] = "/tmp"
 
-	// A non-root identity is only forced when the policy sets one explicitly
-	// (RunAsUID >= 0). The default (-1) leaves the image's own user in place,
-	// because forcing an arbitrary uid breaks images without a matching passwd
-	// entry — the container is already hardened by cap-drop, no-new-privileges,
-	// a read-only rootfs and no network.
-	user := ""
-	if c.policy.RunAsUID >= 0 {
-		user = fmt.Sprintf("%d", c.policy.RunAsUID)
-		if c.policy.RunAsGID >= 0 {
-			user = fmt.Sprintf("%d:%d", c.policy.RunAsUID, c.policy.RunAsGID)
-		}
-	}
+	user := dockerUser(c.policy)
 
 	wantStdin := spec.Stdin != nil
 	cfg := dockerContainerConfig(c.image, cmd, containerWorkDir, envMapToSlice(env), user, wantStdin)
@@ -109,7 +98,7 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 
 	// Expose the source through a private read-only bind mount, never as shell
 	// text. CopyToContainer cannot reliably inject into a container whose rootfs
-	// is configured read-only, and relaxing ReadonlyRootfs for injection weakens
+	// is configured read-only, and making the rootfs writable for injection weakens
 	// the runtime posture. A bind of one temp dir keeps the rootfs read-only and
 	// gives the payload access to only this generated source file.
 	srcData := spec.ScriptData
@@ -122,7 +111,7 @@ func (c *dockerConfiner) Run(ctx context.Context, spec Spec) (*types.Result, err
 	}
 	defer func() { _ = os.RemoveAll(sourceDir) }()
 	// World-traversable dir and world-readable+executable script: the container
-	// may run under a forced non-root uid (policy.RunAsUID) that differs from the
+	// runs as a non-root uid (65534 by default, or policy.RunAsUID) that differs from the
 	// host uid that owns these files, and MkdirTemp/WriteFile would otherwise
 	// create 0700/0600 files only the host owner can reach. The bind is mounted
 	// read-only, so widening the mode does not let the payload tamper with them.
@@ -250,6 +239,23 @@ func (c *dockerConfiner) ensureImage(ctx context.Context) error {
 	return nil
 }
 
+// dockerUser returns the container user. The default is the unprivileged
+// 65534:65534 (nobody), never the image's own user, which is root for most base
+// images (alpine, debian, python). DockerUser overrides it verbatim, and an
+// explicit RunAsUID/RunAsGID is honoured next.
+func dockerUser(p Policy) string {
+	if p.DockerUser != "" {
+		return p.DockerUser
+	}
+	if p.RunAsUID >= 0 {
+		if p.RunAsGID >= 0 {
+			return fmt.Sprintf("%d:%d", p.RunAsUID, p.RunAsGID)
+		}
+		return fmt.Sprintf("%d", p.RunAsUID)
+	}
+	return defaultDockerUser
+}
+
 // dockerContainerConfig builds the portable container config. Stdin plumbing is
 // only enabled when the caller supplies input; user is set only when non-empty.
 func dockerContainerConfig(image string, cmd []string, workdir string, env []string, user string, wantStdin bool) *container.Config {
@@ -281,14 +287,17 @@ func dockerContainerConfig(image string, cmd []string, workdir string, env []str
 //   - private cgroup/ipc/uts namespaces: no sharing with host or other containers.
 //   - pids/memory/cpu limits: contain fork bombs and resource exhaustion.
 //   - Privileged is never set.
+//
+// The capability, privilege and rootfs switches are opt-outs (AllowCapabilities,
+// AllowNewPrivileges, WritableRootfs), so a zero-value Policy is hardened.
 func dockerHostConfig(p Policy) *container.HostConfig {
 	hc := &container.HostConfig{
 		AutoRemove:     false, // we remove explicitly so we can still read logs
-		ReadonlyRootfs: p.ReadonlyRootfs,
+		ReadonlyRootfs: !p.WritableRootfs,
 		CgroupnsMode:   container.CgroupnsModePrivate,
 		IpcMode:        container.IPCModePrivate,
 		Privileged:     false,
-		// mode=1777 (sticky, world-writable) so a forced non-root uid can still
+		// mode=1777 (sticky, world-writable) so the non-root uid can still
 		// write scratch; nosuid/nodev keep the tmpfs from carrying setuid/device
 		// escalation primitives.
 		Tmpfs: map[string]string{
@@ -300,10 +309,10 @@ func dockerHostConfig(p Policy) *container.HostConfig {
 	if !p.AllowNetwork {
 		hc.NetworkMode = "none"
 	}
-	if p.DropAllCapabilities {
+	if !p.AllowCapabilities {
 		hc.CapDrop = []string{"ALL"}
 	}
-	if p.NoNewPrivileges {
+	if !p.AllowNewPrivileges {
 		hc.SecurityOpt = append(hc.SecurityOpt, "no-new-privileges:true")
 	}
 	if p.PidsLimit > 0 {

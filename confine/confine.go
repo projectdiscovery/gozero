@@ -13,9 +13,11 @@
 //     path goes through Run, so there is no second, unconfined code path to
 //     forget about.
 //   - Deny by default. No network, all Linux capabilities dropped,
-//     no-new-privileges, read-only root filesystem, private namespaces, a
-//     minimal scrubbed environment, non-root identity and CPU/memory/pids
-//     limits are all ON unless the policy explicitly relaxes them.
+//     no-new-privileges, read-only root filesystem, a hidden $HOME, private
+//     namespaces, a minimal scrubbed environment, non-root identity and
+//     CPU/memory/pids limits are all ON unless the policy explicitly relaxes
+//     them. Every relaxation is an opt-out field whose zero value is the
+//     hardened setting.
 //   - Least authority for the payload. Source is delivered as bytes (a bind or a
 //     tar copy), never interpolated into a shell — so there is no heredoc/quote
 //     breakout and the declared interpreter is the only thing that runs it.
@@ -31,7 +33,7 @@
 //     outside the workspace/temp (and, optionally, all network).
 //   - Docker (any OS with a daemon): a hardened, single-shot container
 //     (--network none, --cap-drop ALL, no-new-privileges, --read-only, pids/cpu/
-//     memory limits, non-root) with the source injected via the archive API.
+//     memory limits, uid 65534) with the source in a read-only bind.
 package confine
 
 import (
@@ -78,8 +80,8 @@ var (
 )
 
 // Policy is the security posture applied to every execution a Confiner runs.
-// The zero value is not meant to be used directly; call DefaultPolicy and tune
-// from there, or rely on New to fill in safe defaults for unset fields.
+// The zero value is safe: every security switch is an opt-out, and New fills
+// the remaining unset fields (limits, image, env) from DefaultPolicy.
 type Policy struct {
 	// Backend selects the confinement mechanism. Empty means BackendAuto.
 	Backend Backend
@@ -98,14 +100,26 @@ type Policy struct {
 	// dir lets the payload write anywhere in it.
 	Tmp string
 
-	// DropAllCapabilities drops every Linux capability (docker/bwrap). Default true.
-	DropAllCapabilities bool
-	// NoNewPrivileges sets no_new_privs so setuid/setgid bits can't raise
-	// privileges (docker). Default true.
-	NoNewPrivileges bool
-	// ReadonlyRootfs makes the root filesystem read-only (docker) / read-only
-	// bind (bwrap). Default true.
-	ReadonlyRootfs bool
+	// The three switches below are opt-outs: their zero value is the hardened
+	// setting, so a sparse Policy (e.g. only Backend) can never fail open.
+
+	// AllowCapabilities keeps the default Linux capability set (docker/bwrap).
+	// Default false: every capability is dropped.
+	AllowCapabilities bool
+	// AllowNewPrivileges lets setuid/setgid binaries raise privileges (docker).
+	// Default false: no_new_privs is set.
+	AllowNewPrivileges bool
+	// WritableRootfs makes the container root filesystem writable (docker).
+	// Default false: the rootfs is read-only.
+	WritableRootfs bool
+
+	// ReadOnlyPaths is the explicit allow list of host paths under $HOME that
+	// the native backends (bwrap/Seatbelt) expose read-only. $HOME is hidden by
+	// default so the payload can't read ~/.ssh, shell history, cloud
+	// credentials and so on. Add interpreters installed in the home dir here,
+	// e.g. ~/.pyenv, ~/.nvm or a Homebrew prefix in the home dir. Paths outside
+	// $HOME are already readable and need no entry.
+	ReadOnlyPaths []string
 
 	// PidsLimit caps the number of processes (docker). Default 128. <=0 disables.
 	PidsLimit int64
@@ -117,9 +131,16 @@ type Policy struct {
 
 	// RunAsUID / RunAsGID set the identity the payload runs as. Negative means
 	// "use the current process uid/gid" on unix (so workspace files stay owned
-	// by the caller) and "image/OS default" where uid/gid are not meaningful.
+	// by the caller) for the native backends, and the unprivileged nobody user
+	// (65534:65534) for Docker. A zero value pair is treated as unset, so a
+	// sparse policy never forces root.
 	RunAsUID int
 	RunAsGID int
+
+	// DockerUser overrides the container user verbatim (docker "--user" syntax,
+	// e.g. "1000:1000" or "root"). Empty means RunAsUID/RunAsGID when set, else
+	// 65534:65534. Use it for images that need a specific user.
+	DockerUser string
 
 	// AllowedEnv is the whitelist of host environment variables passed through
 	// to the payload. Everything else in the host environment is scrubbed.
@@ -150,6 +171,9 @@ const (
 	defaultMemoryBytes = int64(512) * 1024 * 1024
 	defaultNanoCPUs    = int64(1_000_000_000) // 1.0 CPU
 	defaultPullTimeout = 5 * time.Minute
+	// defaultDockerUser is the unprivileged nobody:nogroup identity. It needs
+	// no passwd entry, so it works on any image.
+	defaultDockerUser = "65534:65534"
 	// defaultDockerImage is a small, widely-available base. Callers running
 	// non-shell interpreters should override it with an image that ships them.
 	defaultDockerImage = "alpine:latest"
@@ -158,23 +182,21 @@ const (
 )
 
 // DefaultPolicy returns a hardened, deny-by-default policy: no network, all
-// capabilities dropped, no-new-privileges, read-only rootfs, private
-// namespaces, resource limits, non-root, minimal environment.
+// capabilities dropped, no-new-privileges, read-only rootfs, $HOME hidden,
+// private namespaces, resource limits, non-root, minimal environment. The
+// security switches are opt-outs, so the zero Policy is equally hardened.
 func DefaultPolicy() Policy {
 	return Policy{
-		Backend:             BackendAuto,
-		AllowNetwork:        false,
-		DropAllCapabilities: true,
-		NoNewPrivileges:     true,
-		ReadonlyRootfs:      true,
-		PidsLimit:           defaultPidsLimit,
-		MemoryBytes:         defaultMemoryBytes,
-		NanoCPUs:            defaultNanoCPUs,
-		RunAsUID:            -1,
-		RunAsGID:            -1,
-		AllowedEnv:          append([]string(nil), defaultAllowedEnv...),
-		DockerImage:         defaultDockerImage,
-		PullTimeout:         defaultPullTimeout,
+		Backend:      BackendAuto,
+		AllowNetwork: false,
+		PidsLimit:    defaultPidsLimit,
+		MemoryBytes:  defaultMemoryBytes,
+		NanoCPUs:     defaultNanoCPUs,
+		RunAsUID:     -1,
+		RunAsGID:     -1,
+		AllowedEnv:   append([]string(nil), defaultAllowedEnv...),
+		DockerImage:  defaultDockerImage,
+		PullTimeout:  defaultPullTimeout,
 	}
 }
 
