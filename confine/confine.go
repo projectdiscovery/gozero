@@ -39,7 +39,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/projectdiscovery/gozero/types"
@@ -93,7 +92,10 @@ type Policy struct {
 	// Workspace is the writable root granted to the payload. When empty, an
 	// ephemeral per-execution directory is created and removed afterwards.
 	Workspace string
-	// Tmp is an additional writable temp dir. Defaults to os.TempDir().
+	// Tmp is an additional writable dir granted to native confiners, and the
+	// base of the ephemeral workspace. Empty means no extra writable dir; the
+	// workspace is then created under os.TempDir(). Setting it to a shared temp
+	// dir lets the payload write anywhere in it.
 	Tmp string
 
 	// DropAllCapabilities drops every Linux capability (docker/bwrap). Default true.
@@ -183,9 +185,6 @@ func (p Policy) normalized() Policy {
 	d := DefaultPolicy()
 	if p.Backend == "" {
 		p.Backend = d.Backend
-	}
-	if p.Tmp == "" {
-		p.Tmp = os.TempDir()
 	}
 	if p.PidsLimit == 0 {
 		p.PidsLimit = d.PidsLimit

@@ -98,6 +98,35 @@ func TestConfinedBlocksWriteOutsideWorkspace(t *testing.T) {
 		"payload escaped confinement: wrote %s (statErr=%v)", escape, statErr)
 }
 
+// TestConfinedBlocksWriteToSharedTemp checks that the payload cannot write in
+// the host temp dir outside its own workspace, which is shared with other
+// processes and with other confined runs.
+func TestConfinedBlocksWriteToSharedTemp(t *testing.T) {
+	c := nativeOrSkip(t)
+	defer func() { _ = c.Close() }()
+
+	escape := filepath.Join(os.TempDir(), "gozero_confine_tmp_probe")
+	_ = os.Remove(escape)
+	t.Cleanup(func() { _ = os.Remove(escape) })
+
+	p, data := writeScript(t, "echo pwned > \"$ESCAPE_PATH\"\necho ok > \"$HOME/inside\"\ncat \"$HOME/inside\"\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	res, _ := c.Run(ctx, Spec{
+		Command:    []string{"/bin/sh", p},
+		ScriptPath: p,
+		ScriptData: data,
+		Env:        map[string]string{"ESCAPE_PATH": escape},
+	})
+	require.NotNil(t, res)
+	assert.Contains(t, res.Stdout.String(), "ok", "the workspace must stay writable")
+
+	_, statErr := os.Stat(escape)
+	assert.Truef(t, os.IsNotExist(statErr),
+		"payload wrote the shared temp dir: %s (statErr=%v)", escape, statErr)
+}
+
 // TestConfinedEnvIsScrubbed verifies that an ambient host secret does not reach
 // the payload's environment.
 func TestConfinedEnvIsScrubbed(t *testing.T) {

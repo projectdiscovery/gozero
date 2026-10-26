@@ -33,7 +33,7 @@ func TestNormalizedFillsSparsePolicy(t *testing.T) {
 	assert.Equal(t, defaultNanoCPUs, got.NanoCPUs)
 	assert.Equal(t, defaultDockerImage, got.DockerImage)
 	assert.Equal(t, defaultPullTimeout, got.PullTimeout)
-	assert.NotEmpty(t, got.Tmp)
+	assert.Empty(t, got.Tmp, "the shared temp dir must not be writable by default")
 	assert.NotNil(t, got.Logger)
 	// A zero-value uid/gid must be treated as "unset" and never forced to root.
 	assert.Equal(t, -1, got.RunAsUID)
