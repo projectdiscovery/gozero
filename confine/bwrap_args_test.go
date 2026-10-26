@@ -84,6 +84,9 @@ func TestBwrapArgsZeroPolicyDropsCapabilities(t *testing.T) {
 }
 
 func TestBwrapArgsHidesHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bwrap runs only on Linux and takes POSIX paths")
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	ch := canonicalPath(home)

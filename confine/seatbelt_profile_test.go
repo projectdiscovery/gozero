@@ -44,6 +44,9 @@ func TestSeatbeltProfileRuleOrder(t *testing.T) {
 }
 
 func TestSeatbeltProfileHidesHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Seatbelt runs only on macOS and takes POSIX paths")
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	ch := canonicalPath(home)
