@@ -1,8 +1,10 @@
+//nolint:exhaustruct,exhaustruct_v5 // the Docker API option and config structs use zero values for unset fields
 package sandbox
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os/exec"
 	"strings"
@@ -75,8 +77,23 @@ func NewDockerSandbox(ctx context.Context, config *DockerConfiguration) (*Sandbo
 	}, nil
 }
 
+// DockerSourceOptions holds the per-run inputs of RunSourceWithOptions.
+type DockerSourceOptions struct {
+	// Interpreter runs the source file. If it is empty or the source starts
+	// with a shebang, the source file runs directly.
+	Interpreter string
+	// InterpreterArgs are passed to Interpreter before the source path.
+	InterpreterArgs []string
+	// Args are passed to the source after its path.
+	Args []string
+	// Stdin is copied to the standard input of the source until EOF or
+	// until the container exits. If nil, the container has no standard
+	// input. A read from Stdin can still be pending when the run returns.
+	Stdin io.Reader
+}
+
 // runCommand executes a command in the Docker container with the given command parts
-func (s *SandboxDocker) runCommand(ctx context.Context, cmdParts []string, command string, createFile bool, fileContent string) (*types.Result, error) {
+func (s *SandboxDocker) runCommand(ctx context.Context, cmdParts []string, command string, stdin io.Reader) (*types.Result, error) {
 	if len(cmdParts) == 0 {
 		return nil, fmt.Errorf("empty command")
 	}
@@ -91,34 +108,19 @@ func (s *SandboxDocker) runCommand(ctx context.Context, cmdParts []string, comma
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
 
-	// If we need to create a file, modify the command to create it first
-	finalCmd := cmdParts
-	if createFile && len(fileContent) > 0 {
-		// Generate a temporary filename
-		tmpFileName := fmt.Sprintf("/tmp/gozero_script_%d.sh", time.Now().UnixNano())
-
-		// Create a script that writes the file content and then executes it
-		scriptContent := fmt.Sprintf(`#!/bin/sh
-cat > %s << 'EOF'
-%s
-EOF
-chmod +x %s
-exec %s
-`, tmpFileName, fileContent, tmpFileName, tmpFileName)
-
-		// Create a command that writes the script and executes it
-		finalCmd = []string{"/bin/sh", "-c", scriptContent}
-	}
-
 	// Create container configuration
 	containerConfig := &container.Config{
 		Image:        s.config.Image,
-		Cmd:          finalCmd,
+		Cmd:          cmdParts,
 		WorkingDir:   s.config.WorkingDir,
 		Env:          env,
 		User:         s.config.User,
 		AttachStdout: true,
 		AttachStderr: true,
+		// Stdin stays open until the attached client closes it
+		AttachStdin: stdin != nil,
+		OpenStdin:   stdin != nil,
+		StdinOnce:   stdin != nil,
 	}
 
 	// Create host configuration
@@ -151,6 +153,19 @@ exec %s
 	}
 
 	containerID := createResp.ID
+
+	// Attach stdin before the start, as docker run -i does, so it is
+	// connected for the whole run
+	if stdin != nil {
+		stopStdin, err := s.attachStdin(runCtx, containerID, stdin)
+		if err != nil {
+			_, _ = s.dockerClient.ContainerRemove(runCtx, containerID, client.ContainerRemoveOptions{Force: true})
+
+			return nil, err
+		}
+
+		defer stopStdin()
+	}
 
 	// Start container
 	_, err = s.dockerClient.ContainerStart(runCtx, containerID, client.ContainerStartOptions{})
@@ -210,7 +225,8 @@ exec %s
 func (s *SandboxDocker) Run(ctx context.Context, cmd string) (*types.Result, error) {
 	// Parse command into parts
 	cmdParts := strings.Fields(cmd)
-	return s.runCommand(ctx, cmdParts, cmd, false, "")
+
+	return s.runCommand(ctx, cmdParts, cmd, nil)
 }
 
 // RunScript executes a script in the Docker container
@@ -218,33 +234,51 @@ func (s *SandboxDocker) RunScript(ctx context.Context, source string, interprete
 	return s.RunSource(ctx, source, interpreter)
 }
 
-// RunSource writes source code to a temporary file inside the container and executes it
+// RunSource writes source code to a temporary file inside the container and executes it.
+// The interpreter can include arguments, such as "python3 -u".
 func (s *SandboxDocker) RunSource(ctx context.Context, source string, interpreter string) (*types.Result, error) {
+	var opts DockerSourceOptions
+	if fields := strings.Fields(interpreter); len(fields) > 0 {
+		opts.Interpreter, opts.InterpreterArgs = fields[0], fields[1:]
+	}
+
+	return s.RunSourceWithOptions(ctx, source, opts)
+}
+
+// RunSourceWithOptions writes source code to a temporary file inside the
+// container and executes it with the arguments and stdin in opts.
+func (s *SandboxDocker) RunSourceWithOptions(
+	ctx context.Context, source string, opts DockerSourceOptions,
+) (*types.Result, error) {
 	// Generate a temporary filename
 	tmpFileName := fmt.Sprintf("/tmp/gozero_script_%d", time.Now().UnixNano())
 
-	// Check if source has a shebang - if so, use it instead of the interpreter
-	// Otherwise, use the provided interpreter
-	execCmd := fmt.Sprintf("%s %s", interpreter, tmpFileName)
-	if strings.HasPrefix(source, "#!") {
-		// Source has shebang, let it execute directly
-		execCmd = tmpFileName
+	// A source with a shebang, or without an interpreter, runs directly
+	var execArgs []string
+	if opts.Interpreter != "" && !strings.HasPrefix(source, "#!") {
+		execArgs = append(execArgs, opts.Interpreter)
+		execArgs = append(execArgs, opts.InterpreterArgs...)
 	}
 
-	// Create a script that writes the source content and then executes it
+	execArgs = append(execArgs, tmpFileName)
+	execArgs = append(execArgs, opts.Args...)
+
+	// Create a script that writes the source content and then executes its
+	// positional parameters, so the shell never parses the arguments
 	scriptContent := fmt.Sprintf(`cat > %s << 'EOF'
 %s
 EOF
 chmod +x %s
-exec %s
-`, tmpFileName, source, tmpFileName, execCmd)
+exec "$@"
+`, tmpFileName, source, tmpFileName)
 
 	log.Println(tmpFileName)
 	log.Println(scriptContent)
 
-	// Execute the script directly
-	cmdParts := []string{"/bin/sh", "-c", scriptContent}
-	return s.runCommand(ctx, cmdParts, fmt.Sprintf("exec %s", tmpFileName), false, "")
+	// "sh" is the script's $0 and execArgs are its "$@"
+	cmdParts := append([]string{"/bin/sh", "-c", scriptContent, "sh"}, execArgs...)
+
+	return s.runCommand(ctx, cmdParts, "exec "+tmpFileName, opts.Stdin)
 }
 
 // Start is not implemented for Docker sandbox as it's stateless
@@ -341,4 +375,26 @@ func (s *SandboxDocker) pullImageIfNeeded(ctx context.Context, imageName string)
 	}
 
 	return nil
+}
+
+// attachStdin copies stdin to the standard input of a created container. The
+// returned stop function closes the connection, which ends the copy at its
+// next write; call it after the container exits. Like docker run -i, stop
+// doesn't wait for a pending read from stdin, which may never return.
+func (s *SandboxDocker) attachStdin(ctx context.Context, containerID string, stdin io.Reader) (func(), error) {
+	attach, err := s.dockerClient.ContainerAttach(ctx, containerID, client.ContainerAttachOptions{
+		Stream: true,
+		Stdin:  true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to attach container stdin: %w", err)
+	}
+
+	go func() {
+		_, _ = io.Copy(attach.Conn, stdin)
+		// Closing the write side closes the container's stdin
+		_ = attach.CloseWrite()
+	}()
+
+	return attach.Close, nil
 }
