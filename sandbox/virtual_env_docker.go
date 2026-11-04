@@ -92,135 +92,6 @@ type DockerSourceOptions struct {
 	Stdin io.Reader
 }
 
-// runCommand executes a command in the Docker container with the given command parts
-func (s *SandboxDocker) runCommand(ctx context.Context, cmdParts []string, command string, stdin io.Reader) (*types.Result, error) {
-	if len(cmdParts) == 0 {
-		return nil, fmt.Errorf("empty command")
-	}
-
-	// Create a new context with timeout
-	runCtx, cancel := context.WithTimeout(ctx, s.config.Timeout)
-	defer cancel()
-
-	// Prepare environment variables
-	env := []string{}
-	for key, value := range s.config.Environment {
-		env = append(env, fmt.Sprintf("%s=%s", key, value))
-	}
-
-	// Create container configuration
-	containerConfig := &container.Config{
-		Image:        s.config.Image,
-		Cmd:          cmdParts,
-		WorkingDir:   s.config.WorkingDir,
-		Env:          env,
-		User:         s.config.User,
-		AttachStdout: true,
-		AttachStderr: true,
-		// Stdin stays open until the attached client closes it
-		AttachStdin: stdin != nil,
-		OpenStdin:   stdin != nil,
-		StdinOnce:   stdin != nil,
-	}
-
-	// Create host configuration
-	hostConfig := &container.HostConfig{
-		AutoRemove: false, // Don't auto-remove so we can get logs
-	}
-
-	// Set network configuration
-	if s.config.NetworkDisabled {
-		hostConfig.NetworkMode = "none"
-	} else if s.config.NetworkMode != "" {
-		hostConfig.NetworkMode = container.NetworkMode(s.config.NetworkMode)
-	}
-
-	// Set resource limits if specified
-	if s.config.Memory != "" {
-		hostConfig.Memory = parseMemoryLimit(s.config.Memory)
-	}
-
-	// Pull image if it doesn't exist locally
-	err := s.pullImageIfNeeded(runCtx, s.config.Image)
-	if err != nil {
-		return nil, fmt.Errorf("failed to pull image %s: %w", s.config.Image, err)
-	}
-
-	// Create container
-	createResp, err := s.dockerClient.ContainerCreate(runCtx, client.ContainerCreateOptions{Config: containerConfig, HostConfig: hostConfig})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create container: %w", err)
-	}
-
-	containerID := createResp.ID
-
-	// Attach stdin before the start, as docker run -i does, so it is
-	// connected for the whole run
-	if stdin != nil {
-		stopStdin, err := s.attachStdin(runCtx, containerID, stdin)
-		if err != nil {
-			_, _ = s.dockerClient.ContainerRemove(runCtx, containerID, client.ContainerRemoveOptions{Force: true})
-
-			return nil, err
-		}
-
-		defer stopStdin()
-	}
-
-	// Start container
-	_, err = s.dockerClient.ContainerStart(runCtx, containerID, client.ContainerStartOptions{})
-	if err != nil {
-		_, _ = s.dockerClient.ContainerRemove(runCtx, containerID, client.ContainerRemoveOptions{Force: true})
-		return nil, fmt.Errorf("failed to start container: %w", err)
-	}
-
-	// Wait for container to finish
-	waitRes := s.dockerClient.ContainerWait(runCtx, containerID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
-
-	select {
-	case err := <-waitRes.Error:
-		_, _ = s.dockerClient.ContainerRemove(runCtx, containerID, client.ContainerRemoveOptions{Force: true})
-		return nil, fmt.Errorf("container wait error: %w", err)
-	case result := <-waitRes.Result:
-		// Get container logs
-		logs, err := s.dockerClient.ContainerLogs(runCtx, containerID, client.ContainerLogsOptions{
-			ShowStdout: true,
-			ShowStderr: true,
-		})
-		if err != nil {
-			_, _ = s.dockerClient.ContainerRemove(runCtx, containerID, client.ContainerRemoveOptions{Force: true})
-			return nil, fmt.Errorf("failed to get container logs: %w", err)
-		}
-		defer func() {
-			_ = logs.Close()
-		}()
-
-		// Read logs
-		logData := make([]byte, 1024*1024) // 1MB buffer
-		n, err := logs.Read(logData)
-		if err != nil && err.Error() != "EOF" {
-			_, _ = s.dockerClient.ContainerRemove(runCtx, containerID, client.ContainerRemoveOptions{Force: true})
-			return nil, fmt.Errorf("failed to read container logs: %w", err)
-		}
-
-		// Create result
-		cmdResult := &types.Result{
-			Command: command,
-		}
-		cmdResult.Stdout.Write(logData[:n])
-
-		// Set exit code
-		if result.StatusCode != 0 {
-			cmdResult.SetExitError(&exec.ExitError{})
-		}
-
-		// Always clean up container manually
-		_, _ = s.dockerClient.ContainerRemove(runCtx, containerID, client.ContainerRemoveOptions{Force: true})
-
-		return cmdResult, nil
-	}
-}
-
 // Run executes a command in the Docker container (synchronous execution)
 func (s *SandboxDocker) Run(ctx context.Context, cmd string) (*types.Result, error) {
 	// Parse command into parts
@@ -377,6 +248,116 @@ func (s *SandboxDocker) pullImageIfNeeded(ctx context.Context, imageName string)
 	return nil
 }
 
+// runCommand executes a command in the Docker container with the given command parts.
+func (s *SandboxDocker) runCommand(
+	ctx context.Context, cmdParts []string, command string, stdin io.Reader,
+) (*types.Result, error) {
+	if len(cmdParts) == 0 {
+		return nil, errEmptyCommand
+	}
+
+	// Create a new context with timeout
+	runCtx, cancel := context.WithTimeout(ctx, s.config.Timeout)
+	defer cancel()
+
+	// Pull image if it doesn't exist locally
+	err := s.pullImageIfNeeded(runCtx, s.config.Image)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull image %s: %w", s.config.Image, err)
+	}
+
+	// Create container
+	createResp, err := s.dockerClient.ContainerCreate(runCtx, client.ContainerCreateOptions{
+		Config:     s.containerConfig(cmdParts, stdin != nil),
+		HostConfig: s.hostConfig(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create container: %w", err)
+	}
+
+	containerID := createResp.ID
+
+	// Always clean up the container, which isn't auto-removed so that its
+	// logs can be read
+	defer func() {
+		_, _ = s.dockerClient.ContainerRemove(runCtx, containerID, client.ContainerRemoveOptions{Force: true})
+	}()
+
+	// Attach stdin before the start, as docker run -i does, so it is
+	// connected for the whole run
+	if stdin != nil {
+		stopStdin, err := s.attachStdin(runCtx, containerID, stdin)
+		if err != nil {
+			return nil, err
+		}
+
+		defer stopStdin()
+	}
+
+	// Start container
+	_, err = s.dockerClient.ContainerStart(runCtx, containerID, client.ContainerStartOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to start container: %w", err)
+	}
+
+	// Wait for container to finish
+	waitRes := s.dockerClient.ContainerWait(runCtx, containerID, client.ContainerWaitOptions{
+		Condition: container.WaitConditionNotRunning,
+	})
+
+	select {
+	case err := <-waitRes.Error:
+		return nil, fmt.Errorf("container wait error: %w", err)
+	case result := <-waitRes.Result:
+		return s.collectResult(runCtx, containerID, command, result.StatusCode)
+	}
+}
+
+// containerConfig returns the configuration of a container that runs cmd.
+func (s *SandboxDocker) containerConfig(cmd []string, withStdin bool) *container.Config {
+	// Prepare environment variables
+	env := make([]string, 0, len(s.config.Environment))
+	for key, value := range s.config.Environment {
+		env = append(env, key+"="+value)
+	}
+
+	return &container.Config{
+		Image:        s.config.Image,
+		Cmd:          cmd,
+		WorkingDir:   s.config.WorkingDir,
+		Env:          env,
+		User:         s.config.User,
+		AttachStdout: true,
+		AttachStderr: true,
+		// Stdin stays open until the attached client closes it
+		AttachStdin: withStdin,
+		OpenStdin:   withStdin,
+		StdinOnce:   withStdin,
+	}
+}
+
+// hostConfig returns the host configuration of a container, with the network
+// mode and memory limit of the sandbox.
+func (s *SandboxDocker) hostConfig() *container.HostConfig {
+	hostConfig := &container.HostConfig{
+		AutoRemove: false, // Don't auto-remove so we can get logs
+	}
+
+	// Set network configuration
+	if s.config.NetworkDisabled {
+		hostConfig.NetworkMode = "none"
+	} else if s.config.NetworkMode != "" {
+		hostConfig.NetworkMode = container.NetworkMode(s.config.NetworkMode)
+	}
+
+	// Set resource limits if specified
+	if s.config.Memory != "" {
+		hostConfig.Memory = parseMemoryLimit(s.config.Memory)
+	}
+
+	return hostConfig
+}
+
 // attachStdin copies stdin to the standard input of a created container. The
 // returned stop function closes the connection, which ends the copy at its
 // next write; call it after the container exits. Like docker run -i, stop
@@ -397,4 +378,47 @@ func (s *SandboxDocker) attachStdin(ctx context.Context, containerID string, std
 	}()
 
 	return attach.Close, nil
+}
+
+// logBufferSize is the size of the buffer that collectResult reads container
+// logs into.
+const logBufferSize = 1024 * 1024 // 1MB
+
+// collectResult reads the output of an exited container into a Result.
+func (s *SandboxDocker) collectResult(
+	ctx context.Context, containerID, command string, statusCode int64,
+) (*types.Result, error) {
+	// Get container logs
+	logs, err := s.dockerClient.ContainerLogs(ctx, containerID, client.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container logs: %w", err)
+	}
+
+	defer func() {
+		_ = logs.Close()
+	}()
+
+	// Read logs
+	logData := make([]byte, logBufferSize)
+
+	size, err := logs.Read(logData)
+	if err != nil && err.Error() != "EOF" {
+		return nil, fmt.Errorf("failed to read container logs: %w", err)
+	}
+
+	// Create result
+	cmdResult := &types.Result{
+		Command: command,
+	}
+	cmdResult.Stdout.Write(logData[:size])
+
+	// Set exit code
+	if statusCode != 0 {
+		cmdResult.SetExitError(&exec.ExitError{})
+	}
+
+	return cmdResult, nil
 }
