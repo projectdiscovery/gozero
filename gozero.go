@@ -73,8 +73,11 @@ func (g *Gozero) Eval(ctx context.Context, src, input *Source, args ...string) (
 	return gcmd.Execute(ctx)
 }
 
-// EvalWithVirtualEnv evaluates the source code in a virtual environment and returns the output
-// This function passes the source code into the virtual environment and external parameters as environment variables
+// EvalWithVirtualEnv evaluates the source code in a virtual environment and
+// returns the output. As in Eval, the engine gets Options.Args before the
+// source path and args after it, input is the standard input, and the
+// variables of src and input are environment variables. A source that starts
+// with a shebang runs directly, without the engine and Options.Args.
 func (g *Gozero) EvalWithVirtualEnv(ctx context.Context, envType VirtualEnvType, src, input *Source, dockerConfig *sandbox.DockerConfiguration, args ...string) (*types.Result, error) {
 	// Read source code content
 	srcContent, err := src.ReadAll()
@@ -119,7 +122,12 @@ func (g *Gozero) EvalWithVirtualEnv(ctx context.Context, envType VirtualEnvType,
 		}
 
 		// Execute the source code in the Docker container
-		result, err := dockerSandbox.RunSource(ctx, string(srcContent), interpreter)
+		result, err := dockerSandbox.RunSourceWithOptions(ctx, string(srcContent), sandbox.DockerSourceOptions{
+			Interpreter:     interpreter,
+			InterpreterArgs: g.Options.Args,
+			Args:            args,
+			Stdin:           input.File,
+		})
 		if err != nil {
 			return nil, err
 		}
